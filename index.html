@@ -172,6 +172,7 @@ function render(){
     if(state.view==='wrong')return viewWrong();
     if(state.view==='practice')return viewPractice();
     if(state.view==='records')return viewRecords();
+    if(state.view==='redo')return viewRedo();
     if(state.view==='teacher')return viewTeacherLogin();
     if(state.view==='panel')return viewPanel();
   };
@@ -354,11 +355,12 @@ function viewReview(){
   html+=`<div class="card"><h2>答案回顾（红色=答错，绿色=正确答案）</h2>`;
   const block=(list,startNo,label,cls)=>{
     let out=`<div class="section-title">${label}</div>`;
+    const wrongSet=new Set(rec.wrongIds||[]);
     list.forEach((q,i)=>{
       const no=startNo+i,pick=rec.ans[q.id],ok=pick===q.ans;
       out+=`<div class="q-item" data-qid="${q.id}">
         <div class="q-stem"><span class="qtype ${cls}">${cls==='choice'?'单选':'判断'}</span><span class="qno">${no}.</span>${esc(q.stem)}
-        ${ok?'':`<span class="qtype wrong-tag">答错 ×${w[q.id]||1}</span>`}</div>`;
+        ${ok?'':`<span class="qtype wrong-tag">答错${wrongSet.has(q.id)&&w[q.id]?' ×'+w[q.id]:(wrongSet.has(q.id)?'':'（已订正）')}</span>`}</div>`;
       const opts=cls==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
       opts.forEach(([L,txt])=>{
         let c='';
@@ -381,14 +383,14 @@ function viewWrong(){
   const w=getWrong(s.id);
   const entries=Object.entries(w).map(([id,c])=>({q:qById(+id),count:c})).filter(e=>e.q);
   entries.sort((a,b)=>b.count-a.count);
-  const high=entries.filter(e=>e.count>3),low=entries.filter(e=>e.count<=3);
+  const high=entries.filter(e=>e.count>=3),low=entries.filter(e=>e.count<3);
   const shown=wrongFilter==='high'?high:wrongFilter==='low'?low:entries;
   let html=topbar()+`<div class="container">
     <div class="card"><h2>📕 我的错题本</h2>
     <div class="stat-row">
       <div class="stat"><div class="v">${entries.length}</div><div class="l">全部错题</div></div>
-      <div class="stat"><div class="v" style="color:var(--red)">${high.length}</div><div class="l">高频错题（错4次以上）</div></div>
-      <div class="stat"><div class="v">${low.length}</div><div class="l">低频错题（3次及以下）</div></div>
+      <div class="stat"><div class="v" style="color:var(--red)">${high.length}</div><div class="l">高频错题（错3次及以上）</div></div>
+      <div class="stat"><div class="v">${low.length}</div><div class="l">低频错题（错1~2次）</div></div>
     </div></div>
     <div class="card">
       <div class="tabs">
@@ -403,7 +405,7 @@ function viewWrong(){
     const q=e.q;
     html+=`<div class="q-item" data-qid="${q.id}">
       <div class="q-stem"><span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选':'判断'}</span>
-      ${esc(q.stem)}<span class="badge ${e.count>3?'':'gray'}">错 ${e.count} 次 ${e.count>3?'· 高频':''}</span></div>`;
+      ${esc(q.stem)}<span class="badge ${e.count>=3?'':'gray'}">错 ${e.count} 次 ${e.count>=3?'· 高频':''}</span></div>`;
     const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
     opts.forEach(([L,txt])=>{
       html+=`<div class="opt ${L===q.ans?'correct':''}"><span class="letter">${L}</span>${esc(txt)}${L===q.ans?' ✔':''}</div>`;
@@ -425,8 +427,8 @@ let practice=null;
 function startPractice(filter){
   const s=getSess();const w=getWrong(s.id);
   let ids=Object.keys(w).map(Number);
-  if(filter==='high')ids=ids.filter(id=>w[id]>3);
-  if(filter==='low')ids=ids.filter(id=>w[id]<=3);
+  if(filter==='high')ids=ids.filter(id=>w[id]>=3);
+  if(filter==='low')ids=ids.filter(id=>w[id]<3);
   if(!ids.length){alert('该分类下没有错题');return;}
   practice={ids,idx:0,answered:false,picked:null};
   state.view='practice';window.scrollTo(0,0);render();
@@ -446,7 +448,7 @@ function viewPractice(){
   let html=topbar()+`<div class="container">
     <div class="practice-bar">
       <b>📕 刷错题 ${practice.idx+1} / ${practice.ids.length}</b>
-      <span class="muted">该题历史错误：<b style="color:var(--red)">${w[q.id]||1}</b> 次 ${w[q.id]>3?'<span class="tag high">高频</span>':'<span class="tag low">低频</span>'}</span>
+      <span class="muted">该题历史错误：<b style="color:var(--red)">${w[q.id]||1}</b> 次 ${w[q.id]>=3?'<span class="tag high">高频</span>':'<span class="tag low">低频</span>'}</span>
     </div>`;
   if(practice.answered){
     const ok=practice.picked===q.ans;
@@ -494,19 +496,31 @@ function delWrongPractice(){
 function viewRecords(){
   const s=getSess(); if(!s)return logout();
   const h=getHist(s.id).slice().reverse();
-  let html=topbar()+`<div class="container"><div class="card"><h2>📊 考试成绩记录</h2>`;
+  let html=topbar()+`<div class="container"><div class="card"><h2>📊 考试成绩记录</h2>
+  <div style="margin-bottom:12px"><button class="btn secondary" onclick="exportMyData()">📤 导出学习报告（发给教师）</button>
+  <span class="muted" style="margin-left:8px">导出文件通过微信/QQ发给老师，老师导入后即可查看你的成绩与订正情况</span></div>`;
   if(!h.length)html+=`<div class="muted" style="padding:20px 0;text-align:center">暂无考试记录</div>`;
   else{
     const avg=(h.reduce((a,b)=>a+b.score,0)/h.length).toFixed(1);
+    const corrected=h.filter(r=>r.wrong.length===0).length;
     html+=`<div class="stat-row">
       <div class="stat"><div class="v">${h.length}</div><div class="l">考试次数</div></div>
       <div class="stat"><div class="v">${avg}</div><div class="l">平均分</div></div>
-      <div class="stat"><div class="v">${Math.max(...h.map(x=>x.score))}</div><div class="l">最高分</div></div></div>
-      <table style="margin-top:14px"><tr><th>时间</th><th>成绩</th><th>答对</th><th>答错</th><th>操作</th></tr>`;
+      <div class="stat"><div class="v">${Math.max(...h.map(x=>x.score))}</div><div class="l">最高分</div></div>
+      <div class="stat"><div class="v" style="color:var(--green)">${corrected}/${h.length}</div><div class="l">已订正完成</div></div></div>
+      <table style="margin-top:14px"><tr><th>时间</th><th>初次成绩</th><th>答对</th><th>答错</th><th>订正状态</th><th>操作</th></tr>`;
     h.forEach((r,i)=>{
+      const recIdx=getHist(s.id).length-1-i;
+      const done=r.wrong.length===0;
+      const status=done?'<span style="color:var(--green)">✅ 已全部订正</span>':`<span style="color:var(--red)">❌ 未订正 ${r.wrong.length} 道</span>`;
       html+=`<tr><td>${fmtTime(r.ts)}</td><td><b style="color:${r.score>=60?'var(--green)':'var(--red)'}">${r.score}</b></td>
         <td>${200-r.wrong.length}</td><td>${r.wrong.length}</td>
-        <td><button class="btn secondary small" onclick="reviewOld(${getHist(s.id).length-1-i})">查看试卷</button></td></tr>`;
+        <td>${status}</td>
+        <td style="white-space:nowrap">
+          <button class="btn secondary small" onclick="viewExamWrong(${recIdx})">本套错题</button>
+          ${done?'':`<button class="btn small" onclick="startRedo(${recIdx})">重做错题</button>`}
+          <button class="btn secondary small" onclick="reviewOld(${recIdx})">查看试卷</button>
+        </td></tr>`;
     });
     html+=`</table>`;
   }
@@ -518,6 +532,147 @@ function reviewOld(idx){
   exam={choice:r.cIds.map(qById).filter(Boolean),judge:r.jIds.map(qById).filter(Boolean),ans:r.ans,score:r.score,wrongIds:r.wrong,submitted:true};
   // 查看旧试卷时不再重复加分/记错题，只展示
   state.view='review';window.scrollTo(0,0);render();
+}
+
+/* ---------- 查看某套试卷的错题 ---------- */
+function viewExamWrong(idx){
+  const s=getSess();const r=getHist(s.id)[idx];
+  if(!r)return go('records');
+  const w=getWrong(s.id);
+  let html=topbar()+`<div class="container">
+    <div class="score-banner"><div>第 ${idx+1} 次考试</div><div class="num">${r.score}</div>
+    <div>${fmtTime(r.ts)} · 初次成绩 · 答错 ${r.wrong.length} 题</div></div>`;
+  if(!r.wrong.length){
+    html+=`<div class="card" style="text-align:center;padding:40px"><div style="font-size:40px">🎉</div>
+      <h2>本套错题已全部订正掌握！</h2></div>`;
+  }else{
+    html+=`<div class="card"><button class="btn" onclick="startRedo(${idx})">▶ 重做此套错题（${r.wrong.length} 道）</button>
+      <span class="muted" style="margin-left:10px">每道错题需连续答对 2 遍才算掌握，答错则重新计数</span></div>
+      <div class="card"><h2>本套错题及正确答案（${r.wrong.length} 道）</h2>`;
+    r.wrong.forEach((qid,n)=>{
+      const q=qById(qid); if(!q)return;
+      html+=`<div class="q-item" data-qid="${q.id}">
+        <div class="q-stem"><span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选':'判断'}</span>
+        <span class="qno">${n+1}.</span>${esc(q.stem)}<span class="badge">本次答错</span>
+        ${w[q.id]>=3?'<span class="tag high">高频</span>':''}</div>`;
+      const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
+      const pick=r.ans[q.id];
+      opts.forEach(([L,txt])=>{
+        let c='';
+        if(L===q.ans)c='correct';
+        else if(L===pick)c='wrongpick';
+        html+=`<div class="opt ${c}"><span class="letter">${L}</span>${esc(txt)}${L===q.ans?' ✔':''}</div>`;
+      });
+      html+=`<div class="muted">你的答案：${pick||'未作答'} ｜ 正确答案：${q.ans}</div></div>`;
+    });
+    html+=`</div>`;
+  }
+  html+=`<div class="card"><button class="btn secondary" onclick="go('records')">← 返回成绩记录</button></div>`;
+  $app.innerHTML=html;
+}
+
+/* ---------- 重做某套试卷的错题（订正） ---------- */
+let redoSess=null;
+function startRedo(idx){
+  const s=getSess();const h=getHist(s.id);const r=h[idx];
+  if(!r)return go('records');
+  const ids=r.wrong.slice();
+  if(!ids.length){alert('本套试卷的错题已全部订正完成！');return;}
+  if(!confirm(`重做规则：\n1. 本套共 ${ids.length} 道错题，顺序已打乱\n2. 每道错题需连续答对 2 遍才算"掌握"，掌握后自动从错题本移除\n3. 中途答错，该题重新计数，需再连对 2 遍\n4. 全部错题掌握后本套即"通关"\n\n开始重做吗？`))return;
+  shuffle(ids);
+  redoSess={examIdx:idx,total:ids.length,queue:ids.map(id=>({qid:id,streak:0})),pos:0,answered:false,picked:null,fb:'',fbOk:false,doneNow:false};
+  state.view='redo';window.scrollTo(0,0);render();
+}
+function viewRedo(){
+  if(!redoSess)return go('records');
+  const s=getSess();
+  if(!redoSess.queue.length){
+    // 通关：写订正完成时间
+    const h=getHist(s.id);const rec=h[redoSess.examIdx];
+    if(rec&&!rec.correctedAt){rec.correctedAt=Date.now();saveHist(s.id,h);}
+    $app.innerHTML=topbar()+`<div class="container">
+      <div class="score-banner"><div>🎉</div><div class="num">通关！</div>
+      <div>本套试卷共 ${redoSess.total} 道错题已全部掌握订正，均已从错题本移除</div></div>
+      <div class="card">
+        <button class="btn" onclick="go('records')">返回成绩记录</button>
+        <button class="btn secondary" onclick="viewExamWrong(${redoSess.examIdx})">回顾本套错题</button>
+        <button class="btn secondary" onclick="startExam()">再考一套</button>
+      </div></div>`;
+    return;
+  }
+  const item=redoSess.queue[redoSess.pos];
+  const q=qById(item.qid);
+  if(!q){redoSess.queue.splice(redoSess.pos,1);if(redoSess.pos>=redoSess.queue.length)redoSess.pos=0;render();return;}
+  const mastered=redoSess.total-redoSess.queue.length;
+  let html=topbar()+`<div class="container">
+    <div class="practice-bar">
+      <b>✏️ 订正错题 ｜ 已掌握 ${mastered} / ${redoSess.total}</b>
+      <span class="muted">剩余 <b style="color:var(--orange)">${redoSess.queue.length}</b> 道待订正</span>
+    </div>
+    <div class="practice-bar">
+      <span class="muted">本题需连续答对 2 遍：当前已连对 <b style="color:var(--primary)">${item.streak}</b> / 2 遍</span>
+      <a class="muted" style="cursor:pointer" onclick="quitRedo()">保存进度并退出</a>
+    </div>`;
+  if(redoSess.answered){
+    html+=`<div class="feedback ${redoSess.fbOk?'right':'wrong'}">${redoSess.fb}</div>`;
+  }
+  html+=`<div class="card">
+    <div class="q-stem"><span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选':'判断'}</span>${esc(q.stem)}</div>`;
+  const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
+  opts.forEach(([L,txt])=>{
+    let c='';
+    if(redoSess.answered){
+      if(L===q.ans)c='correct';
+      else if(L===redoSess.picked)c='wrongpick';
+    }
+    html+=`<div class="opt ${c}" ${redoSess.answered?'':`onclick="redoPick('${L}')"`}><span class="letter">${L}</span>${esc(txt)}</div>`;
+  });
+  if(redoSess.answered)html+=`<div class="muted">正确答案：${q.ans} ｜ 你的答案：${redoSess.picked}</div>`;
+  html+=`</div>`;
+  if(redoSess.answered){
+    html+=`<div class="practice-bar"><button class="btn" onclick="redoNext()">${redoSess.doneNow?'继续下一题 →':(redoSess.pos+1>=redoSess.queue.length&&redoSess.queue.length>0?'下一题 →':'下一题 →')}</button></div>`;
+  }else{
+    html+=`<div class="practice-bar"><span class="muted">点击选项作答，答完立即显示对错</span></div>`;
+  }
+  html+=`</div>`;
+  $app.innerHTML=html;
+}
+function redoPick(L){
+  const s=getSess();
+  const item=redoSess.queue[redoSess.pos];
+  const q=qById(item.qid);
+  redoSess.answered=true;redoSess.picked=L;redoSess.doneNow=false;
+  if(L===q.ans){
+    item.streak++;
+    if(item.streak>=2){
+      // 掌握：从错题本移除 + 从该套记录的 wrong 移除
+      const w=getWrong(s.id);delete w[q.id];saveWrong(s.id,w);
+      const h=getHist(s.id);const rec=h[redoSess.examIdx];
+      if(rec)rec.wrong=rec.wrong.filter(x=>x!==q.id);saveHist(s.id,h);
+      redoSess.queue.splice(redoSess.pos,1);
+      if(redoSess.pos>=redoSess.queue.length)redoSess.pos=0;
+      redoSess.fb=`🎉 恭喜！这道题已连对 2 遍，标记为【已掌握】并从错题本移除${redoSess.queue.length?'':'，本套错题全部订正完成！'}`;
+      redoSess.fbOk=true;redoSess.doneNow=true;
+    }else{
+      redoSess.fb='✔ 第 1 遍正确！再答对 1 遍就掌握这道题';
+      redoSess.fbOk=true;
+    }
+  }else{
+    item.streak=0;
+    redoSess.fb='✘ 答错了！这道题需要重新连对 2 遍（进度已清零，稍后会再次出现）';
+    redoSess.fbOk=false;
+  }
+  window.scrollTo(0,0);render();
+}
+function redoNext(){
+  if(!redoSess.queue.length){render();return;}
+  redoSess.pos=(redoSess.pos+1)%redoSess.queue.length;
+  redoSess.answered=false;redoSess.picked=null;redoSess.fb='';redoSess.doneNow=false;
+  window.scrollTo(0,0);render();
+}
+function quitRedo(){
+  if(!confirm('确定退出重做吗？已掌握的题目会保留，剩余错题下次可继续重做。'))return;
+  redoSess=null;go('records');
 }
 
 /* ---------- 学生数据备份 ---------- */
@@ -605,15 +760,94 @@ function viewPanel(){
       <button class="btn" onclick="changePwd()">修改密码</button>
     </div>
     <div class="muted" style="margin-top:8px">修改后同样需要导出账号文件并替换仓库中的 data/accounts.js</div></div>
+    <div class="card"><h2>📋 学生作答情况</h2>
+    <div class="warn-box">💡 用法：网站没有服务器，学生的成绩保存在学生自己的设备上。让学生在"考试成绩记录"页点 <b>导出学习报告</b>，把生成的文件通过微信/QQ发给你，你在这里导入即可查看全班情况。导入支持一次选中多个文件。</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn" onclick="importReports()">⬆ 导入学生报告（可多选）</button>
+      <button class="btn secondary" onclick="exportReportsCSV()">📊 导出成绩汇总表（Excel）</button>
+      <button class="btn danger" onclick="clearReports()">清空已导入报告</button>
+    </div>
+    ${renderReportsTable()}
+    </div>
     <div class="card"><h2>ℹ️ 系统说明</h2>
       <ul style="padding-left:20px;font-size:14px;color:var(--muted)">
         <li>题库：单选 ${QBANK.filter(q=>q.type==='choice').length} 题 + 判断 ${QBANK.filter(q=>q.type==='judge').length} 题，共 ${QBANK.length} 题</li>
         <li>每次考试随机出 100 道单选 + 100 道判断，每题 0.5 分，满分 100 分</li>
         <li>每位学生近 5 次考试的题目在下次出题时重复率控制在 10% 以内（判断题库共 424 题，连续多次考试后如新题不足会自动放宽）</li>
-        <li>学生的成绩、错题记录保存在各自设备浏览器中；错 4 次以上自动进入高频错题库</li>
+        <li>学生的成绩、错题记录保存在各自设备浏览器中；错 3 次及以上自动进入高频错题库</li>
+        <li>学生重做某套试卷错题：每道错题需连续答对 2 遍才算掌握并从错题本移除，答错则重新计数；全部掌握后该套显示"已全部订正"</li>
       </ul></div>
   </div>`;
   $app.innerHTML=html;panelMsg='';
+}
+/* ---------- 教师端：学生报告 ---------- */
+function getReports(){return JSON.parse(localStorage.getItem('qz_reports')||'{}');}
+function saveReports(r){localStorage.setItem('qz_reports',JSON.stringify(r));}
+function renderReportsTable(){
+  const rep=getReports();
+  const list=Object.values(rep);
+  if(!list.length)return '<div class="muted" style="padding:16px 0;text-align:center">还没有导入任何学生报告。让学生在"考试成绩记录"页导出报告文件后发给你。</div>';
+  list.sort((a,b)=>(a.id||'').localeCompare(b.id||''));
+  let out=`<div style="max-height:420px;overflow-y:auto"><table><tr><th>学号</th><th>姓名</th><th>考试次数</th><th>最高分</th><th>历次成绩（第一遍）</th><th>订正情况</th><th>报告时间</th><th>操作</th></tr>`;
+  list.forEach(r=>{
+    const hist=(r.hist||[]).slice().sort((a,b)=>a.ts-b.ts);
+    const scores=hist.map(x=>x.score).join(' / ')||'—';
+    const done=hist.filter(x=>!x.wrong||x.wrong.length===0).length;
+    const best=hist.length?Math.max(...hist.map(x=>x.score)):'—';
+    const corr=hist.map(x=>(!x.wrong||x.wrong.length===0)?'✅':`❌${x.wrong.length}`).join(' ');
+    out+=`<tr><td>${esc(r.id)}</td><td>${esc(r.name||'')}</td><td>${hist.length}</td><td>${best}</td>
+      <td style="font-size:13px">${scores}</td>
+      <td style="font-size:13px">${done}/${hist.length} 套订正完成<br><span class="muted">${corr}</span></td>
+      <td class="muted" style="font-size:12px">${r.exportedAt?new Date(r.exportedAt).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</td>
+      <td><button class="btn danger small" onclick="delReport('${esc(r.id)}')">删除</button></td></tr>`;
+  });
+  out+='</table></div>';
+  return out;
+}
+function importReports(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.multiple=true;
+  inp.onchange=()=>{
+    const files=[...inp.files];if(!files.length)return;
+    let okN=0,badN=0;
+    let pend=files.length;
+    files.forEach(f=>{
+      const rd=new FileReader();
+      rd.onload=()=>{
+        try{
+          const d=JSON.parse(rd.result);
+          if(d.type!=='qianzhong-student-data'||!d.id)throw 0;
+          const rep=getReports();
+          rep[d.id]={id:d.id,name:d.name||d.id,exportedAt:d.exportedAt,hist:d.hist||[],wrong:d.wrong||{}};
+          saveReports(rep);okN++;
+        }catch(e){badN++;}
+        if(--pend===0){panelMsg=`导入完成：成功 ${okN} 份${badN?`，失败 ${badN} 份（格式不对的文件）`:''}`;viewPanel();}
+      };
+      rd.readAsText(f);
+    });
+  };
+  inp.click();
+}
+function delReport(id){
+  if(!confirm(`删除学生 ${id} 的报告记录吗？`))return;
+  const rep=getReports();delete rep[id];saveReports(rep);viewPanel();
+}
+function clearReports(){
+  if(!confirm('确定清空全部已导入的学生报告吗？'))return;
+  saveReports({});viewPanel();
+}
+function exportReportsCSV(){
+  const rep=getReports();const list=Object.values(rep);
+  if(!list.length){alert('还没有导入任何学生报告');return;}
+  list.sort((a,b)=>(a.id||'').localeCompare(b.id||''));
+  let csv='\uFEFF学号,姓名,考试次数,最高分,历次成绩,订正情况,报告导出时间\n';
+  list.forEach(r=>{
+    const hist=(r.hist||[]).slice().sort((a,b)=>a.ts-b.ts);
+    const scores=hist.map(x=>x.score).join('/')||'—';
+    const corr=hist.map(x=>(!x.wrong||x.wrong.length===0)?'已订正':`未订正${x.wrong.length}道`).join('；')||'—';
+    const times=hist.map(x=>fmtTime(x.ts).slice(0,10)).join('/')||'—';
+    csv+=`${r.id},${r.name||''},${hist.length},${hist.length?Math.max(...hist.map(x=>x.score)):'—'},${scores},${corr},${r.exportedAt?new Date(r.exportedAt).toLocaleString('zh-CN'):'—'}\n`;
+  });
+  download('学生成绩汇总表.csv',csv);
 }
 function addStudent(){
   const id=document.getElementById('nsId').value.trim();
