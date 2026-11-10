@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>钳工中级刷题系统</title>
+<style>
+:root{
+  --primary:#2563eb; --primary-dark:#1d4ed8; --bg:#f1f5f9; --card:#ffffff;
+  --text:#1e293b; --muted:#64748b; --border:#e2e8f0;
+  --green:#16a34a; --red:#dc2626; --orange:#ea580c; --amber:#f59e0b;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.6}
+.container{max-width:920px;margin:0 auto;padding:16px}
+.card{background:var(--card);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+h1{font-size:22px;margin-bottom:8px}
+h2{font-size:18px;margin-bottom:12px}
+h3{font-size:16px;margin:14px 0 8px}
+.btn{display:inline-block;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:15px;cursor:pointer;text-decoration:none;text-align:center;transition:.15s}
+.btn:hover{background:var(--primary-dark)}
+.btn.secondary{background:#fff;color:var(--primary);border:1px solid var(--primary)}
+.btn.secondary:hover{background:#eff6ff}
+.btn.danger{background:#fff;color:var(--red);border:1px solid var(--red)}
+.btn.danger:hover{background:#fef2f2}
+.btn.small{padding:4px 10px;font-size:13px;border-radius:6px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+input[type=text],input[type=password],textarea,select{width:100%;border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:15px;font-family:inherit;margin-bottom:4px}
+textarea{min-height:110px;resize:vertical}
+input:focus,textarea:focus{outline:2px solid #bfdbfe;border-color:var(--primary)}
+.muted{color:var(--muted);font-size:13px}
+.error{color:var(--red);font-size:14px;margin-top:6px}
+.ok-msg{color:var(--green);font-size:14px;margin-top:6px}
+.topbar{background:var(--primary);color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.topbar .user{font-weight:bold}
+.topbar .link{color:#dbeafe;cursor:pointer;font-size:14px;margin-left:14px}
+.topbar .link:hover{text-decoration:underline}
+.menu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.menu-item{background:var(--card);border-radius:12px;padding:22px 18px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid transparent;transition:.15s}
+.menu-item:hover{border-color:var(--primary);transform:translateY(-2px)}
+.menu-item .icon{font-size:30px;margin-bottom:8px}
+.menu-item .title{font-weight:bold;font-size:16px}
+.menu-item .desc{color:var(--muted);font-size:13px;margin-top:4px}
+.q-item{margin-bottom:22px;padding-bottom:18px;border-bottom:1px dashed var(--border)}
+.q-item:last-child{border-bottom:none}
+.q-stem{font-weight:bold;margin-bottom:10px}
+.q-stem .qno{color:var(--primary);margin-right:6px}
+.q-stem .qtype{font-size:12px;color:#fff;background:var(--muted);border-radius:4px;padding:1px 6px;margin-right:6px;vertical-align:2px;font-weight:normal}
+.q-stem .qtype.choice{background:var(--primary)}
+.q-stem .qtype.judge{background:var(--green)}
+.q-stem .qtype.wrong-tag{background:var(--red)}
+.opt{display:block;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:.1s}
+.opt:hover{border-color:var(--primary);background:#eff6ff}
+.opt.selected{border-color:var(--primary);background:#dbeafe;font-weight:bold}
+.opt.correct{border-color:var(--green);background:#dcfce7}
+.opt.wrongpick{border-color:var(--red);background:#fee2e2}
+.opt .letter{display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;background:#f1f5f9;border-radius:50%;margin-right:8px;font-size:13px}
+.opt.selected .letter,.opt.correct .letter{background:var(--primary);color:#fff}
+.opt.correct .letter{background:var(--green)}
+.answer-card{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--border);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;box-shadow:0 -2px 8px rgba(0,0,0,.06);z-index:10}
+.answer-card .progress{font-size:14px}
+.ac-grid{display:flex;flex-wrap:wrap;gap:4px;max-height:180px;overflow-y:auto;margin:8px 0}
+.ac-btn{width:32px;height:28px;font-size:11px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;color:var(--muted)}
+.ac-btn.answered{background:var(--primary);color:#fff;border-color:var(--primary)}
+.score-banner{text-align:center;padding:26px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;margin-bottom:16px}
+.score-banner .num{font-size:52px;font-weight:bold}
+.badge{display:inline-block;background:var(--red);color:#fff;border-radius:10px;font-size:12px;padding:0 8px;margin-left:6px}
+.badge.gray{background:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left}
+th{background:#f8fafc}
+.tag{display:inline-block;border-radius:5px;padding:1px 8px;font-size:12px}
+.tag.high{background:#fee2e2;color:var(--red)}
+.tag.low{background:#dbeafe;color:var(--primary)}
+.tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.tab{padding:7px 16px;border-radius:20px;border:1px solid var(--border);background:#fff;cursor:pointer;font-size:14px}
+.tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.feedback{padding:12px 14px;border-radius:8px;margin-bottom:14px;font-weight:bold}
+.feedback.right{background:#dcfce7;color:var(--green)}
+.feedback.wrong{background:#fee2e2;color:var(--red)}
+.practice-bar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.hidden{display:none}
+.section-title{background:#eff6ff;border-left:4px solid var(--primary);padding:8px 12px;border-radius:0 8px 8px 0;margin:20px 0 14px;font-weight:bold}
+.login-box{max-width:400px;margin:60px auto}
+.hero{text-align:center;padding:40px 16px 20px}
+.hero .logo{font-size:44px}
+.stat-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.stat{flex:1;min-width:100px;background:#f8fafc;border-radius:10px;padding:12px;text-align:center}
+.stat .v{font-size:22px;font-weight:bold;color:var(--primary)}
+.stat .l{font-size:12px;color:var(--muted)}
+.warn-box{background:#fffbeb;border:1px solid var(--amber);border-radius:8px;padding:10px 14px;font-size:13px;margin:10px 0}
+@media(max-width:600px){.container{padding:10px}.card{padding:14px}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="data/questions.js"></script>
+<script>
+/* ================= 数据加载（accounts.js 动态加载，绕过缓存） ================= */
+const QBANK = window.QUESTION_BANK || [];
+function loadAccounts(cb){
+  const s=document.createElement('script');
+  s.src='data/accounts.js?v='+Date.now();
+  s.onload=()=>cb(window.ACCOUNTS);
+  s.onerror=()=>cb(window.ACCOUNTS||{teacherPwdHash:'',students:[]});
+  document.head.appendChild(s);
+}
+
+/* ================= 工具 ================= */
+const $app=document.getElementById('app');
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+async function sha256(txt){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(txt));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function fmtTime(ts){const d=new Date(ts);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;}
+function download(name,content){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([content],{type:'application/octet-stream'}));
+  a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+const LETTERS=['A','B','C','D','E','F','G'];
+const qById=id=>QBANK[id];
+
+/* ================= 存储键 ================= */
+const K={
+  sess:'qz_session',
+  hist:id=>`qz_hist_${id}`,      // 考试记录数组
+  wrong:id=>`qz_wrong_${id}`     // 错题本 {qid:count}
+};
+const getSess=()=>JSON.parse(localStorage.getItem(K.sess)||'null');
+const setSess=v=>v?localStorage.setItem(K.sess,JSON.stringify(v)):localStorage.removeItem(K.sess);
+const getHist=sid=>JSON.parse(localStorage.getItem(K.hist(sid))||'[]');
+const saveHist=(sid,h)=>localStorage.setItem(K.hist(sid),JSON.stringify(h));
+const getWrong=sid=>JSON.parse(localStorage.getItem(K.wrong(sid))||'{}');
+const saveWrong=(sid,w)=>localStorage.setItem(K.wrong(sid),JSON.stringify(w));
+
+/* ================= 状态 ================= */
+let ACCOUNTS={teacherPwdHash:'',students:[]};
+let state={view:'login'};
+
+/* ================= 组卷（近5次重复率≤10%） ================= */
+function genExam(sid){
+  const hist=getHist(sid);
+  const recent=new Set();
+  hist.slice(-5).forEach(r=>{r.cIds.forEach(i=>recent.add(i));r.jIds.forEach(i=>recent.add(i));});
+  function pick(type,n){
+    const pool=QBANK.filter(q=>q.type===type);
+    const fresh=shuffle(pool.filter(q=>!recent.has(q.id)));
+    const rep=shuffle(pool.filter(q=>recent.has(q.id)));
+    // 95% 从近5次未考题中出，5% 允许重复 => 重复率5% ≤ 10%
+    const nRep=Math.min(rep.length,Math.round(n*0.05));
+    let nFresh=n-nRep;
+    let sel=fresh.slice(0,nFresh);
+    if(sel.length<nFresh) sel=sel.concat(rep.slice(0,n-sel.length)); // 新题不够时补
+    else sel=sel.concat(rep.slice(0,nRep));
+    return shuffle(sel);
+  }
+  return {choice:pick('choice',100),judge:pick('judge',100)};
+}
+
+/* ================= 视图渲染 ================= */
+function render(){
+  // 登录页/教师页需加载最新账号文件；其他页面用内存缓存，避免每次点击都发请求
+  const needFresh=(state.view==='login'||state.view==='teacher')||!ACCOUNTS.students;
+  const dispatch=()=>{
+    if(state.view==='login')return viewLogin();
+    if(state.view==='home')return viewHome();
+    if(state.view==='exam')return viewExam();
+    if(state.view==='review')return viewReview();
+    if(state.view==='wrong')return viewWrong();
+    if(state.view==='practice')return viewPractice();
+    if(state.view==='records')return viewRecords();
+    if(state.view==='teacher')return viewTeacherLogin();
+    if(state.view==='panel')return viewPanel();
+  };
+  if(needFresh){
+    loadAccounts(acc=>{
+      ACCOUNTS=acc&&acc.students?acc:{teacherPwdHash:'',students:[]};
+      dispatch();
+    });
+  }else dispatch();
+}
+
+function topbar(){
+  const s=getSess();
+  return `<div class="topbar"><div>🔧 钳工中级刷题系统</div>
+    ${s?`<div><span class="user">👤 ${esc(s.name)}（${esc(s.id)}）</span>
+    <span class="link" onclick="go('home')">首页</span>
+    <span class="link" onclick="logout()">退出</span></div>`:''}</div>`;
+}
+function go(v){state.view=v;window.scrollTo(0,0);render();}
+function logout(){setSess(null);go('login');}
+
+/* ---------- 登录 ---------- */
+function viewLogin(msg){
+  $app.innerHTML=topbar()+`
+  <div class="container">
+    <div class="card login-box">
+      <div class="hero"><div class="logo">🔧</div><h1>钳工中级刷题系统</h1>
+      <div class="muted">请使用学号登录 · 教师请从下方入口进入</div></div>
+      <label class="muted">学号</label>
+      <input type="text" id="loginId" placeholder="请输入学号" onkeydown="if(event.key==='Enter')doLogin()">
+      <div class="error" id="loginErr"></div>
+      <button class="btn" style="width:100%;margin-top:10px" onclick="doLogin()">登 录</button>
+      <div style="text-align:center;margin-top:14px">
+        <a class="muted" style="cursor:pointer" onclick="go('teacher')">教师管理入口 →</a>
+      </div>
+      ${msg?`<div class="${msg.ok?'ok-msg':'error'}" style="text-align:center;margin-top:10px">${esc(msg.text)}</div>`:''}
+    </div>
+  </div>`;
+}
+function doLogin(){
+  const id=document.getElementById('loginId').value.trim();
+  const st=ACCOUNTS.students.find(s=>s.id===id);
+  const err=document.getElementById('loginErr');
+  if(!st){err.textContent='该学号不存在，请联系教师添加账号。';return;}
+  setSess({id:st.id,name:st.name||st.id});
+  go('home');
+}
+
+/* ---------- 学生首页 ---------- */
+function viewHome(){
+  const s=getSess(); if(!s)return logout();
+  const hist=getHist(s.id), wrong=getWrong(s.id);
+  const wrongN=Object.keys(wrong).length;
+  const highN=Object.values(wrong).filter(c=>c>3).length;
+  const best=hist.length?Math.max(...hist.map(h=>h.score)):null;
+  $app.innerHTML=topbar()+`
+  <div class="container">
+    <div class="card">
+      <h2>你好，${esc(s.name)} 👋</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="v">${hist.length}</div><div class="l">已考次数</div></div>
+        <div class="stat"><div class="v">${best===null?'—':best}</div><div class="l">最高分</div></div>
+        <div class="stat"><div class="v">${wrongN}</div><div class="l">错题总数</div></div>
+        <div class="stat"><div class="v">${highN}</div><div class="l">高频错题</div></div>
+      </div>
+    </div>
+    <div class="menu-grid">
+      <div class="menu-item" onclick="startExam()"><div class="icon">📝</div><div class="title">开始模拟考试</div><div class="desc">100单选 + 100判断，每题0.5分，满分100分</div></div>
+      <div class="menu-item" onclick="go('wrong')"><div class="icon">📕</div><div class="title">我的错题本</div><div class="desc">${wrongN}道错题，其中高频错题${highN}道</div></div>
+      <div class="menu-item" onclick="go('records')"><div class="icon">📊</div><div class="title">考试成绩记录</div><div class="desc">查看历次成绩与试卷回顾</div></div>
+      <div class="menu-item" onclick="exportMyData()"><div class="icon">💾</div><div class="title">备份 / 恢复数据</div><div class="desc">更换电脑或浏览器时迁移我的记录</div></div>
+    </div>
+    <div class="warn-box">💡 说明：你的考试记录和错题本保存在<b>当前设备的浏览器</b>中。换电脑或清除浏览器数据会丢失记录，请先用"备份/恢复数据"导出文件。</div>
+  </div>`;
+}
+
+/* ---------- 考试 ---------- */
+let exam=null;
+function startExam(){
+  const s=getSess(); if(!s)return logout();
+  const g=genExam(s.id);
+  exam={choice:g.choice,judge:g.judge,ans:{},submitted:false};
+  state.view='exam';window.scrollTo(0,0);render();
+}
+function pickOpt(qid,letter){
+  if(exam.submitted)return;
+  exam.ans[qid]=letter;
+  document.querySelectorAll(`[data-qid="${qid}"] .opt`).forEach(el=>{
+    el.classList.toggle('selected',el.dataset.letter===letter);
+  });
+  updateProgress();
+}
+function updateProgress(){
+  const total=exam.choice.length+exam.judge.length;
+  const done=Object.keys(exam.ans).length;
+  document.getElementById('progText').textContent=`已答 ${done} / ${total}`;
+  const card=document.getElementById('acGrid');
+  if(card){
+    [...exam.choice,...exam.judge].forEach(q=>{
+      const b=card.querySelector(`[data-ac="${q.id}"]`);
+      if(b)b.classList.toggle('answered',!!exam.ans[q.id]);
+    });
+  }
+}
+function jumpTo(qid){const el=document.querySelector(`[data-qid="${qid}"]`);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.style.background='#fef9c3';setTimeout(()=>el.style.background='',1200);}}
+function toggleCard(){const g=document.getElementById('acGridWrap');g.classList.toggle('hidden');}
+function submitExam(){
+  const total=exam.choice.length+exam.judge.length;
+  const un=total-Object.keys(exam.ans).length;
+  if(un>0&&!confirm(`还有 ${un} 题未作答，确定交卷吗？`))return;
+  if(!confirm('确认交卷？'))return;
+  const s=getSess();
+  exam.submitted=true;
+  let score=0;const wrongIds=[];
+  [...exam.choice,...exam.judge].forEach(q=>{
+    if(exam.ans[q.id]===q.ans)score+=0.5;
+    else{wrongIds.push(q.id);}
+  });
+  score=Math.round(score*10)/10;
+  const w=getWrong(s.id);
+  wrongIds.forEach(id=>{w[id]=(w[id]||0)+1;});
+  saveWrong(s.id,w);
+  const h=getHist(s.id);
+  h.push({ts:Date.now(),score,cIds:exam.choice.map(q=>q.id),jIds:exam.judge.map(q=>q.id),ans:{...exam.ans},wrong:wrongIds});
+  if(h.length>50)h.splice(0,h.length-50);
+  saveHist(s.id,h);
+  exam.score=score;exam.wrongIds=wrongIds;
+  state.view='review';window.scrollTo(0,0);render();
+}
+function viewExam(){
+  if(!exam)return go('home');
+  let html=topbar()+`<div class="container">`;
+  html+=`<div class="card"><h2>📝 模拟考试</h2><div class="muted">共 200 题（单选100 + 判断100），每题 0.5 分，满分 100 分。答完点击底部"交卷"。</div></div>`;
+  const block=(list,startNo,label,cls)=>{
+    let s=`<div class="section-title">${label}</div>`;
+    list.forEach((q,i)=>{
+      const no=startNo+i;
+      s+=`<div class="q-item" data-qid="${q.id}">
+        <div class="q-stem"><span class="qtype ${cls}">${cls==='choice'?'单选':'判断'}</span><span class="qno">${no}.</span>${esc(q.stem)}</div>`;
+      if(cls==='choice'){
+        q.opts.forEach((o,oi)=>{
+          const L=LETTERS[oi];
+          s+=`<div class="opt" data-letter="${L}" onclick="pickOpt(${q.id},'${L}')"><span class="letter">${L}</span>${esc(o)}</div>`;
+        });
+      }else{
+        [['A','正确'],['B','错误']].forEach(([L,txt])=>{
+          s+=`<div class="opt" data-letter="${L}" onclick="pickOpt(${q.id},'${L}')"><span class="letter">${L}</span>${txt}</div>`;
+        });
+      }
+      s+=`</div>`;
+    });
+    return s;
+  };
+  html+=`<div class="card">`+block(exam.choice,1,'一、单项选择题（共100题）','choice')+block(exam.judge,101,'二、判断题（共100题）','judge')+`</div>`;
+  html+=`<div class="answer-card">
+    <div><span class="progress" id="progText"></span>
+      <a class="muted" style="cursor:pointer;margin-left:12px" onclick="toggleCard()">答题卡</a></div>
+    <button class="btn" onclick="submitExam()">交 卷</button></div>
+    <div id="acGridWrap" class="hidden card"><div class="ac-grid" id="acGrid">`;
+  [...exam.choice,...exam.judge].forEach((q,i)=>{
+    html+=`<button class="ac-btn" data-ac="${q.id}" onclick="jumpTo(${q.id})">${i+1}</button>`;
+  });
+  html+=`</div></div></div>`;
+  $app.innerHTML=html;
+  updateProgress();
+}
+
+/* ---------- 成绩与回顾 ---------- */
+function viewReview(){
+  const rec=exam&&exam.score!==undefined?exam:null;
+  if(!rec)return go('home');
+  let html=topbar()+`<div class="container">`;
+  const s=getSess();
+  const w=getWrong(s.id);
+  html+=`<div class="score-banner"><div>本次考试成绩</div><div class="num">${rec.score}</div>
+    <div>满分 100 分 · 答对 ${200-rec.wrongIds.length} 题 · 答错 ${rec.wrongIds.length} 题（错题已加入错题本）</div></div>`;
+  html+=`<div class="card"><button class="btn" onclick="go('wrong')">去刷错题 →</button>
+    <button class="btn secondary" onclick="startExam()">再来一套</button>
+    <button class="btn secondary" onclick="go('home')">返回首页</button></div>`;
+  html+=`<div class="card"><h2>答案回顾（红色=答错，绿色=正确答案）</h2>`;
+  const block=(list,startNo,label,cls)=>{
+    let out=`<div class="section-title">${label}</div>`;
+    list.forEach((q,i)=>{
+      const no=startNo+i,pick=rec.ans[q.id],ok=pick===q.ans;
+      out+=`<div class="q-item" data-qid="${q.id}">
+        <div class="q-stem"><span class="qtype ${cls}">${cls==='choice'?'单选':'判断'}</span><span class="qno">${no}.</span>${esc(q.stem)}
+        ${ok?'':`<span class="qtype wrong-tag">答错 ×${w[q.id]||1}</span>`}</div>`;
+      const opts=cls==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
+      opts.forEach(([L,txt])=>{
+        let c='';
+        if(L===q.ans)c='correct';
+        else if(L===pick)c='wrongpick';
+        out+=`<div class="opt ${c}"><span class="letter">${L}</span>${esc(txt)}${L===q.ans?' ✔':''}</div>`;
+      });
+      out+=`<div class="muted">你的答案：${pick||'未作答'} ｜ 正确答案：${q.ans}</div></div>`;
+    });
+    return out;
+  };
+  html+=block(exam.choice,1,'单项选择题','choice')+block(exam.judge,101,'判断题','judge')+`</div></div>`;
+  $app.innerHTML=html;
+}
+
+/* ---------- 错题本 ---------- */
+let wrongFilter='all';
+function viewWrong(){
+  const s=getSess(); if(!s)return logout();
+  const w=getWrong(s.id);
+  const entries=Object.entries(w).map(([id,c])=>({q:qById(+id),count:c})).filter(e=>e.q);
+  entries.sort((a,b)=>b.count-a.count);
+  const high=entries.filter(e=>e.count>3),low=entries.filter(e=>e.count<=3);
+  const shown=wrongFilter==='high'?high:wrongFilter==='low'?low:entries;
+  let html=topbar()+`<div class="container">
+    <div class="card"><h2>📕 我的错题本</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="v">${entries.length}</div><div class="l">全部错题</div></div>
+      <div class="stat"><div class="v" style="color:var(--red)">${high.length}</div><div class="l">高频错题（错4次以上）</div></div>
+      <div class="stat"><div class="v">${low.length}</div><div class="l">低频错题（3次及以下）</div></div>
+    </div></div>
+    <div class="card">
+      <div class="tabs">
+        <button class="tab ${wrongFilter==='all'?'active':''}" onclick="setWF('all')">全部（${entries.length}）</button>
+        <button class="tab ${wrongFilter==='high'?'active':''}" onclick="setWF('high')">高频错题（${high.length}）</button>
+        <button class="tab ${wrongFilter==='low'?'active':''}" onclick="setWF('low')">低频错题（${low.length}）</button>
+      </div>
+      ${entries.length?`<button class="btn" onclick="startPractice('${wrongFilter}')">▶ 开始刷错题（${shown.length}道）</button>
+      <span class="muted" style="margin-left:10px">刷题时答错会累计错误次数；右侧可手动删除错题</span>
+      <div style="margin-top:14px">`:'<div class="muted" style="padding:20px 0;text-align:center">错题本是空的，先去考一套题吧！</div>'}`;
+  shown.forEach(e=>{
+    const q=e.q;
+    html+=`<div class="q-item" data-qid="${q.id}">
+      <div class="q-stem"><span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选':'判断'}</span>
+      ${esc(q.stem)}<span class="badge ${e.count>3?'':'gray'}">错 ${e.count} 次 ${e.count>3?'· 高频':''}</span></div>`;
+    const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
+    opts.forEach(([L,txt])=>{
+      html+=`<div class="opt ${L===q.ans?'correct':''}"><span class="letter">${L}</span>${esc(txt)}${L===q.ans?' ✔':''}</div>`;
+    });
+    html+=`<div class="muted">正确答案：${q.ans} <button class="btn danger small" style="float:right" onclick="delWrong(${q.id})">从错题本删除</button></div></div>`;
+  });
+  html+=`</div></div>`;
+  $app.innerHTML=html;
+}
+function setWF(f){wrongFilter=f;render();}
+function delWrong(qid){
+  const s=getSess();
+  if(!confirm('确定将该题从错题本中删除吗？'))return;
+  const w=getWrong(s.id);delete w[qid];saveWrong(s.id,w);render();
+}
+
+/* ---------- 刷错题 ---------- */
+let practice=null;
+function startPractice(filter){
+  const s=getSess();const w=getWrong(s.id);
+  let ids=Object.keys(w).map(Number);
+  if(filter==='high')ids=ids.filter(id=>w[id]>3);
+  if(filter==='low')ids=ids.filter(id=>w[id]<=3);
+  if(!ids.length){alert('该分类下没有错题');return;}
+  practice={ids,idx:0,answered:false,picked:null};
+  state.view='practice';window.scrollTo(0,0);render();
+}
+function viewPractice(){
+  if(!practice)return go('wrong');
+  const s=getSess();
+  if(practice.idx>=practice.ids.length){
+    $app.innerHTML=topbar()+`<div class="container"><div class="score-banner"><div>🎉</div><div class="num">刷完了！</div>
+      <div>本轮错题练习完成，共 ${practice.ids.length} 题。刚才答错的题错误次数已累计，稍后可再来刷。</div></div>
+      <div class="card"><button class="btn" onclick="go('wrong')">返回错题本</button>
+      <button class="btn secondary" onclick="startPractice('all')">再刷一轮全部错题</button></div></div>`;
+    return;
+  }
+  const q=qById(practice.ids[practice.idx]);
+  const w=getWrong(s.id);
+  let html=topbar()+`<div class="container">
+    <div class="practice-bar">
+      <b>📕 刷错题 ${practice.idx+1} / ${practice.ids.length}</b>
+      <span class="muted">该题历史错误：<b style="color:var(--red)">${w[q.id]||1}</b> 次 ${w[q.id]>3?'<span class="tag high">高频</span>':'<span class="tag low">低频</span>'}</span>
+    </div>`;
+  if(practice.answered){
+    const ok=practice.picked===q.ans;
+    html+=`<div class="feedback ${ok?'right':'wrong'}">${ok?'✔ 回答正确，继续保持！':'✘ 又答错了！该题错误次数已 +1'}</div>`;
+  }
+  html+=`<div class="card">
+    <div class="q-stem"><span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选':'判断'}</span>${esc(q.stem)}</div>`;
+  const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
+  opts.forEach(([L,txt])=>{
+    let c='';
+    if(practice.answered){
+      if(L===q.ans)c='correct';
+      else if(L===practice.picked)c='wrongpick';
+    }
+    html+=`<div class="opt ${c}" ${practice.answered?'':`onclick="practicePick('${L}')"`}><span class="letter">${L}</span>${esc(txt)}</div>`;
+  });
+  if(practice.answered)html+=`<div class="muted">正确答案：${q.ans} ｜ 你的答案：${practice.picked}</div>`;
+  html+=`</div><div class="practice-bar">`;
+  if(practice.answered){
+    html+=`<button class="btn danger" onclick="delWrongPractice()">删除该错题</button>
+      <button class="btn" onclick="practiceNext()">${practice.idx+1>=practice.ids.length?'完成 ✔':'下一题 →'}</button>`;
+  }else{
+    html+=`<button class="btn danger" onclick="delWrongPractice()">删除该错题</button><span class="muted">点击选项作答，答完立即显示对错</span>`;
+  }
+  html+=`</div></div>`;
+  $app.innerHTML=html;
+}
+function practicePick(L){
+  const s=getSess();const q=qById(practice.ids[practice.idx]);
+  practice.picked=L;practice.answered=true;
+  if(L!==q.ans){const w=getWrong(s.id);w[q.id]=(w[q.id]||0)+1;saveWrong(s.id,w);}
+  window.scrollTo(0,0);render();
+}
+function practiceNext(){practice.idx++;practice.answered=false;practice.picked=null;window.scrollTo(0,0);render();}
+function delWrongPractice(){
+  const s=getSess();const qid=practice.ids[practice.idx];
+  if(!confirm('确定将该题从错题本中删除吗？'))return;
+  const w=getWrong(s.id);delete w[qid];saveWrong(s.id,w);
+  practice.ids.splice(practice.idx,1);
+  practice.answered=false;practice.picked=null;
+  render();
+}
+
+/* ---------- 成绩记录 ---------- */
+function viewRecords(){
+  const s=getSess(); if(!s)return logout();
+  const h=getHist(s.id).slice().reverse();
+  let html=topbar()+`<div class="container"><div class="card"><h2>📊 考试成绩记录</h2>`;
+  if(!h.length)html+=`<div class="muted" style="padding:20px 0;text-align:center">暂无考试记录</div>`;
+  else{
+    const avg=(h.reduce((a,b)=>a+b.score,0)/h.length).toFixed(1);
+    html+=`<div class="stat-row">
+      <div class="stat"><div class="v">${h.length}</div><div class="l">考试次数</div></div>
+      <div class="stat"><div class="v">${avg}</div><div class="l">平均分</div></div>
+      <div class="stat"><div class="v">${Math.max(...h.map(x=>x.score))}</div><div class="l">最高分</div></div></div>
+      <table style="margin-top:14px"><tr><th>时间</th><th>成绩</th><th>答对</th><th>答错</th><th>操作</th></tr>`;
+    h.forEach((r,i)=>{
+      html+=`<tr><td>${fmtTime(r.ts)}</td><td><b style="color:${r.score>=60?'var(--green)':'var(--red)'}">${r.score}</b></td>
+        <td>${200-r.wrong.length}</td><td>${r.wrong.length}</td>
+        <td><button class="btn secondary small" onclick="reviewOld(${getHist(s.id).length-1-i})">查看试卷</button></td></tr>`;
+    });
+    html+=`</table>`;
+  }
+  html+=`</div></div>`;
+  $app.innerHTML=html;
+}
+function reviewOld(idx){
+  const s=getSess();const r=getHist(s.id)[idx];
+  exam={choice:r.cIds.map(qById).filter(Boolean),judge:r.jIds.map(qById).filter(Boolean),ans:r.ans,score:r.score,wrongIds:r.wrong,submitted:true};
+  // 查看旧试卷时不再重复加分/记错题，只展示
+  state.view='review';window.scrollTo(0,0);render();
+}
+
+/* ---------- 学生数据备份 ---------- */
+function exportMyData(){
+  const s=getSess();
+  const data={type:'qianzhong-student-data',id:s.id,name:s.name,exportedAt:new Date().toISOString(),
+    hist:getHist(s.id),wrong:getWrong(s.id)};
+  download(`刷题数据_${s.id}_${Date.now()}.json`,JSON.stringify(data));
+}
+function importMyData(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.json';
+  inp.onchange=()=>{
+    const f=inp.files[0];if(!f)return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const d=JSON.parse(rd.result);
+        if(d.type!=='qianzhong-student-data')throw 0;
+        const s=getSess();
+        const h=getHist(s.id).concat(d.hist||[]);
+        h.sort((a,b)=>a.ts-b.ts);
+        const seen=new Set();const uh=h.filter(r=>{if(seen.has(r.ts))return false;seen.add(r.ts);return true;});
+        saveHist(s.id,uh);
+        const w=Object.assign(getWrong(s.id),d.wrong||{});
+        saveWrong(s.id,w);
+        alert('恢复成功！');go('home');
+      }catch(e){alert('文件格式不正确，请选择本系统导出的备份文件');}
+    };
+    rd.readAsText(f);
+  };
+  inp.click();
+}
+
+/* ---------- 教师端 ---------- */
+let teacherOK=false;
+function viewTeacherLogin(msg){
+  $app.innerHTML=topbar()+`
+  <div class="container"><div class="card login-box">
+    <div class="hero"><div class="logo">🔑</div><h1>教师管理</h1></div>
+    <label class="muted">教师密码</label>
+    <input type="password" id="tpwd" onkeydown="if(event.key==='Enter')teacherLogin()">
+    <div class="error" id="terr"></div>
+    <button class="btn" style="width:100%;margin-top:10px" onclick="teacherLogin()">进入管理</button>
+    <div style="text-align:center;margin-top:14px"><a class="muted" style="cursor:pointer" onclick="go('login')">← 返回学生登录</a></div>
+    ${msg?`<div class="${msg.ok?'ok-msg':'error'}" style="text-align:center;margin-top:10px">${esc(msg.text)}</div>`:''}
+  </div></div>`;
+}
+async function teacherLogin(){
+  const pwd=document.getElementById('tpwd').value;
+  const hash=await sha256(pwd);
+  if(hash===ACCOUNTS.teacherPwdHash){teacherOK=true;go('panel');}
+  else document.getElementById('terr').textContent='密码错误';
+}
+let panelMsg='';
+function viewPanel(){
+  if(!teacherOK)return go('teacher');
+  let html=topbar()+`<div class="container">
+    <div class="card"><h2>🔑 账号管理</h2>
+    ${panelMsg?`<div class="ok-msg" style="margin-bottom:10px">${esc(panelMsg)}</div>`:''}
+    <div class="warn-box">⚠️ 重要：账号数据保存在网站仓库的 <b>data/accounts.js</b> 文件中。在这里增删账号后，请点击"导出账号文件"，并将下载的文件替换 GitHub 仓库中的 data/accounts.js，修改才会对所有学生生效。</div>
+    <h3>添加学生</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:130px"><input type="text" id="nsId" placeholder="学号，如 2024001"></div>
+      <div style="flex:1;min-width:130px"><input type="text" id="nsName" placeholder="姓名（可留空）"></div>
+      <button class="btn" onclick="addStudent()">添加</button>
+    </div>
+    <h3>批量添加</h3>
+    <textarea id="batchTxt" placeholder="每行一个学生，格式：学号 姓名（姓名可省略），例如：&#10;2024001 张三&#10;2024002 李四"></textarea>
+    <button class="btn secondary" onclick="batchAdd()">批量添加</button>
+    <span class="muted" style="margin-left:8px">学号重复的会自动跳过</span>
+    <h3>学生列表（${ACCOUNTS.students.length} 人）</h3>
+    <div style="max-height:360px;overflow-y:auto">
+    <table><tr><th>学号</th><th>姓名</th><th>操作</th></tr>
+    ${ACCOUNTS.students.map((st,i)=>`<tr><td>${esc(st.id)}</td><td>${esc(st.name||'')}</td>
+      <td><button class="btn danger small" onclick="delStudent(${i})">删除</button></td></tr>`).join('')}
+    </table></div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn" onclick="exportAccounts()">⬇ 导出账号文件（accounts.js）</button>
+      <button class="btn secondary" onclick="importAccounts()">⬆ 导入账号文件</button>
+      <button class="btn danger" onclick="clearAllStudents()">清空全部学生</button>
+    </div></div>
+    <div class="card"><h2>🔒 修改教师密码</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:180px"><input type="password" id="npwd" placeholder="输入新密码"></div>
+      <button class="btn" onclick="changePwd()">修改密码</button>
+    </div>
+    <div class="muted" style="margin-top:8px">修改后同样需要导出账号文件并替换仓库中的 data/accounts.js</div></div>
+    <div class="card"><h2>ℹ️ 系统说明</h2>
+      <ul style="padding-left:20px;font-size:14px;color:var(--muted)">
+        <li>题库：单选 ${QBANK.filter(q=>q.type==='choice').length} 题 + 判断 ${QBANK.filter(q=>q.type==='judge').length} 题，共 ${QBANK.length} 题</li>
+        <li>每次考试随机出 100 道单选 + 100 道判断，每题 0.5 分，满分 100 分</li>
+        <li>每位学生近 5 次考试的题目在下次出题时重复率控制在 10% 以内（判断题库共 424 题，连续多次考试后如新题不足会自动放宽）</li>
+        <li>学生的成绩、错题记录保存在各自设备浏览器中；错 4 次以上自动进入高频错题库</li>
+      </ul></div>
+  </div>`;
+  $app.innerHTML=html;panelMsg='';
+}
+function addStudent(){
+  const id=document.getElementById('nsId').value.trim();
+  const name=document.getElementById('nsName').value.trim();
+  if(!id){alert('请输入学号');return;}
+  if(ACCOUNTS.students.some(s=>s.id===id)){alert('该学号已存在');return;}
+  ACCOUNTS.students.push({id,name});
+  panelMsg=`已添加 ${id} ${name}。请记得导出账号文件并更新到仓库！`;
+  viewPanel();
+}
+function batchAdd(){
+  const txt=document.getElementById('batchTxt').value.trim();
+  if(!txt){alert('请输入学生列表');return;}
+  let n=0,skip=0;
+  txt.split(/\n+/).forEach(line=>{
+    const parts=line.trim().split(/[\s,，、]+/);
+    if(!parts[0])return;
+    if(ACCOUNTS.students.some(s=>s.id===parts[0])){skip++;return;}
+    ACCOUNTS.students.push({id:parts[0],name:parts[1]||''});n++;
+  });
+  panelMsg=`批量添加 ${n} 人${skip?`，跳过重复 ${skip} 人`:''}。请记得导出账号文件并更新到仓库！`;
+  viewPanel();
+}
+function delStudent(i){
+  const st=ACCOUNTS.students[i];
+  if(!confirm(`确定删除学生 ${st.id} ${st.name||''} 吗？`))return;
+  ACCOUNTS.students.splice(i,1);
+  panelMsg=`已删除 ${st.id}。请记得导出账号文件并更新到仓库！`;
+  viewPanel();
+}
+function clearAllStudents(){
+  if(!confirm('确定清空全部学生账号吗？此操作需导出后才生效。'))return;
+  if(!confirm('再次确认：真的要清空全部学生吗？'))return;
+  ACCOUNTS.students=[];
+  panelMsg='已清空全部学生。请记得导出账号文件并更新到仓库！';
+  viewPanel();
+}
+function exportAccounts(){
+  const obj={teacherPwdHash:ACCOUNTS.teacherPwdHash,updatedAt:new Date().toISOString().slice(0,10),students:ACCOUNTS.students};
+  download('accounts.js','window.ACCOUNTS = '+JSON.stringify(obj,null,2)+';');
+}
+function importAccounts(){
+  const inp=document.createElement('input');inp.type='file';inp.accept='.js,.json,.txt';
+  inp.onchange=()=>{
+    const f=inp.files[0];if(!f)return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        let t=String(rd.result);
+        const st=t.indexOf('=')+1,en=t.lastIndexOf(';');
+        const d=JSON.parse(t.slice(st,en>st?en:undefined));
+        if(!Array.isArray(d.students))throw 0;
+        ACCOUNTS.students=d.students;
+        if(d.teacherPwdHash)ACCOUNTS.teacherPwdHash=d.teacherPwdHash;
+        panelMsg='导入成功，学生数：'+d.students.length+'。请记得导出账号文件并更新到仓库！';
+        viewPanel();
+      }catch(e){alert('文件格式不正确');}
+    };
+    rd.readAsText(f);
+  };
+  inp.click();
+}
+async function changePwd(){
+  const p=document.getElementById('npwd').value;
+  if(!p||p.length<6){alert('密码至少6位');return;}
+  ACCOUNTS.teacherPwdHash=await sha256(p);
+  panelMsg='密码已修改。请务必导出账号文件并更新到仓库，否则下次登录仍用旧密码！';
+  viewPanel();
+}
+
+/* ================= 启动 ================= */
+const sess=getSess();
+state.view=sess?'home':'login';
+render();
+</script>
+</body>
+</html>
