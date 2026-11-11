@@ -140,24 +140,37 @@ const saveWrong=(sid,w)=>localStorage.setItem(K.wrong(sid),JSON.stringify(w));
 let ACCOUNTS={teacherPwdHash:'',students:[]};
 let state={view:'login'};
 
-/* ================= 组卷（50单选+50判断，近10次重复率≤5%） ================= */
+/* ================= 组卷（70单选+30判断，与近11套重复率尽量低） ================= */
+const RECENT_N=11;          // 查重窗口：近 11 套
+const N_CHOICE=70;          // 每套单选
+const N_JUDGE=30;           // 每套判断
+/* 原理：为长期可持续，每套引入的"全新题"数量不超过 floor(题库/(窗口+1))。
+   这样 12 套内不重复超过题库容量，理论上可做到零重复；
+   题库不足时才用"最久未考"的旧题补，重复数天然最小。 */
 function genExam(sid){
   const hist=getHist(sid);
-  const recent=new Set();
-  hist.slice(-10).forEach(r=>{r.cIds.forEach(i=>recent.add(i));r.jIds.forEach(i=>recent.add(i));});
+  const win=hist.slice(-RECENT_N);
+  const base=hist.length-win.length;
+  const lastSeen={};            // 题目 → 最近出现的套序号（越大越新）
+  win.forEach((r,ri)=>{
+    const ord=base+ri;
+    r.cIds.forEach(i=>{lastSeen['c'+i]=ord;});
+    r.jIds.forEach(i=>{lastSeen['j'+i]=ord;});
+  });
   function pick(type,n){
+    const pre=type==='choice'?'c':'j';
     const pool=QBANK.filter(q=>q.type===type);
-    const fresh=shuffle(pool.filter(q=>!recent.has(q.id)));
-    const rep=shuffle(pool.filter(q=>recent.has(q.id)));
-    // 96% 从近10次未考题中出，4% 允许重复 => 重复率4% ≤ 5%
-    const nRep=Math.min(rep.length,Math.floor(n*0.04));
-    let nFresh=n-nRep;
-    let sel=fresh.slice(0,nFresh);
-    if(sel.length<nFresh) sel=sel.concat(rep.slice(0,n-sel.length)); // 新题不够时补（判断题库有限，约8套后可能触发）
-    else sel=sel.concat(rep.slice(0,nRep));
+    const fresh=shuffle(pool.filter(q=>lastSeen[pre+q.id]===undefined));
+    const used=pool.filter(q=>lastSeen[pre+q.id]!==undefined)
+                 .sort((a,b)=>lastSeen[pre+a.id]-lastSeen[pre+b.id]); // 最久未考在前
+    const xMax=Math.floor(pool.length/(RECENT_N+1));   // 每套可持续引入的新题上限
+    const nFresh=Math.min(fresh.length,n,Math.max(xMax,0));
+    const sel=fresh.slice(0,nFresh);
+    const need=n-sel.length;
+    if(need>0)sel.push(...used.slice(0,need));         // 新题不足：用最久未考的补
     return shuffle(sel);
   }
-  return {choice:pick('choice',50),judge:pick('judge',50)};
+  return {choice:pick('choice',N_CHOICE),judge:pick('judge',N_JUDGE)};
 }
 
 /* ================= 视图渲染 ================= */
@@ -240,7 +253,7 @@ function viewHome(){
       </div>
     </div>
     <div class="menu-grid">
-      <div class="menu-item" onclick="startExam()"><div class="icon">📝</div><div class="title">开始模拟考试</div><div class="desc">50单选 + 50判断，每题1分，满分100分</div></div>
+      <div class="menu-item" onclick="startExam()"><div class="icon">📝</div><div class="title">开始模拟考试</div><div class="desc">70单选 + 30判断，每题1分，满分100分</div></div>
       <div class="menu-item" onclick="go('wrong')"><div class="icon">📕</div><div class="title">我的错题本</div><div class="desc">${wrongN}道错题，其中高频错题${highN}道</div></div>
       <div class="menu-item" onclick="go('records')"><div class="icon">📊</div><div class="title">考试成绩记录</div><div class="desc">查看历次成绩与试卷回顾</div></div>
       <div class="menu-item" onclick="exportMyData()"><div class="icon">💾</div><div class="title">备份 / 恢复数据</div><div class="desc">更换电脑或浏览器时迁移我的记录</div></div>
@@ -303,7 +316,7 @@ function submitExam(){
 function viewExam(){
   if(!exam)return go('home');
   let html=topbar()+`<div class="container">`;
-  html+=`<div class="card"><h2>📝 模拟考试</h2><div class="muted">共 100 题（单选50 + 判断50），每题 1 分，满分 100 分。答完点击底部"交卷"。</div></div>`;
+  html+=`<div class="card"><h2>📝 模拟考试</h2><div class="muted">共 100 题（单选70 + 判断30），每题 1 分，满分 100 分。答完点击底部"交卷"。</div></div>`;
   const block=(list,startNo,label,cls)=>{
     let s=`<div class="section-title">${label}</div>`;
     list.forEach((q,i)=>{
@@ -324,7 +337,7 @@ function viewExam(){
     });
     return s;
   };
-  html+=`<div class="card">`+block(exam.choice,1,'一、单项选择题（共50题）','choice')+block(exam.judge,51,'二、判断题（共50题）','judge')+`</div>`;
+  html+=`<div class="card">`+block(exam.choice,1,'一、单项选择题（共70题）','choice')+block(exam.judge,71,'二、判断题（共30题）','judge')+`</div>`;
   html+=`<div class="answer-card">
     <div><span class="progress" id="progText"></span>
       <a class="muted" style="cursor:pointer;margin-left:12px" onclick="toggleCard()">答题卡</a></div>
@@ -370,7 +383,7 @@ function viewReview(){
     });
     return out;
   };
-  html+=block(exam.choice,1,'单项选择题','choice')+block(exam.judge,51,'判断题','judge')+`</div></div>`;
+  html+=block(exam.choice,1,'单项选择题','choice')+block(exam.judge,71,'判断题','judge')+`</div></div>`;
   $app.innerHTML=html;
 }
 
@@ -390,6 +403,7 @@ function viewWrong(){
       <div class="stat"><div class="v" style="color:var(--red)">${high.length}</div><div class="l">高频错题（未通过≥3次）</div></div>
       <div class="stat"><div class="v">${low.length}</div><div class="l">低频错题（未通过1~2次）</div></div>
     </div></div>
+    <div class="warn-box">💡 说明：错题本只收录<b>订正重做时未通过</b>的错题（考试第一次答错的题需先到"成绩记录"里"重做错题"订正，订正没通过的才会进到这里）。题目在这里会一直保留，自己确认已掌握后可以点"从错题本删除"手动剔除。</div>
     <div class="card">
       <div class="tabs">
         <button class="tab ${wrongFilter==='all'?'active':''}" onclick="setWF('all')">全部（${entries.length}）</button>
@@ -398,7 +412,7 @@ function viewWrong(){
       </div>
       ${entries.length?`<button class="btn" onclick="startPractice('${wrongFilter}')">▶ 开始刷错题（${shown.length}道）</button>
       <span class="muted" style="margin-left:10px">刷题时答错会累计错误次数；右侧可手动删除错题</span>
-      <div style="margin-top:14px">`:'<div class="muted" style="padding:20px 0;text-align:center">错题本是空的，先去考一套题吧！</div>'}`;
+      <div style="margin-top:14px">`:'<div class="muted" style="padding:20px 0;text-align:center">错题本还没有题：先去考一套卷，再到"成绩记录"里点"重做错题"，订正没通过的题就会进到这里。</div>'}`;
   shown.forEach(e=>{
     const q=e.q;
     html+=`<div class="q-item" data-qid="${q.id}">
@@ -650,12 +664,13 @@ function redoPick(L){
   if(L===q.ans){
     st.c++;
     if(st.c>=2){
-      // 两遍都对 => 掌握：从错题本移除（若在池中）+ 从该套记录的 wrong 移除
-      const w=getWrong(s.id);const wasInPool=w[q.id]!==undefined;delete w[q.id];saveWrong(s.id,w);
+      // 两遍都对 => 本套卷视为已掌握：仅从该套记录的错题清单移除；
+      // 错题本大池子中的记录保留，由学生自行手动剔除
       const h=getHist(s.id);const rec=h[redoSess.examIdx];
       if(rec)rec.wrong=rec.wrong.filter(x=>x!==q.id);saveHist(s.id,h);
+      const inPool=getWrong(s.id)[q.id]!==undefined;
       redoSess.mastered++;redoSess.masteredNow=true;
-      redoSess.fb=`🎉 恭喜！这道题两遍都答对，已【掌握】${wasInPool?'，并从错题本移除':''}${redoSess.mastered>=redoSess.total?'，本套错题全部订正完成！':''}`;
+      redoSess.fb=`🎉 恭喜！这道题两遍都答对，本套卷中已【掌握】${inPool?'（错题本中仍保留，确认掌握后可在错题本里手动删除）':''}${redoSess.mastered>=redoSess.total?'，本套错题全部订正完成！':''}`;
       redoSess.fbOk=true;
     }else if(item.attempt===1){
       redoSess.fb='✔ 第 1 遍正确！本题稍后还会再出现 1 次，再答对即掌握';
@@ -699,7 +714,7 @@ function endRound(){
   redoSess.fbOk=false;redoSess.answered=true;redoSess.picked=null;
 }
 function quitRedo(){
-  if(!confirm('确定退出重做吗？\n已掌握的题目会保留（已从错题本移除），未掌握的错题下次点击"重做错题"将重新开始新一轮。'))return;
+  if(!confirm('确定退出重做吗？\n已掌握的题会从本套错题中移除（错题本大池子不受影响，需在错题本里手动删除），未掌握的错题下次点击"重做错题"将重新开始新一轮。'))return;
   redoSess=null;go('records');
 }
 
@@ -800,8 +815,8 @@ function viewPanel(){
     <div class="card"><h2>ℹ️ 系统说明</h2>
       <ul style="padding-left:20px;font-size:14px;color:var(--muted)">
         <li>题库：单选 ${QBANK.filter(q=>q.type==='choice').length} 题 + 判断 ${QBANK.filter(q=>q.type==='judge').length} 题，共 ${QBANK.length} 题</li>
-        <li>每次考试随机出 50 道单选 + 50 道判断，每题 1 分，满分 100 分</li>
-        <li>每位学生近 10 次考试的题目在下次出题时重复率控制在 5% 以内（判断题库共 424 题，连续多次考试后如新题不足会自动放宽）</li>
+        <li>每次考试随机出 70 道单选 + 30 道判断，共 100 题，每题 1 分，满分 100 分</li>
+        <li>每次出题与本人近 11 套试卷比对，重复率尽可能低（单选题库 875 题、判断题库 424 题，按 70/30 配比与近 11 套窗口计算可实现零重复）</li>
         <li>学生的成绩、错题记录保存在各自设备浏览器中；错 3 次及以上自动进入高频错题库</li>
         <li>学生重做某套试卷错题：每道错题需连续答对 2 遍才算掌握并从错题本移除，答错则重新计数；全部掌握后该套显示"已全部订正"</li>
       </ul></div>
