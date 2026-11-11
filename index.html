@@ -135,6 +135,17 @@ const getHist=sid=>JSON.parse(localStorage.getItem(K.hist(sid))||'[]');
 const saveHist=(sid,h)=>localStorage.setItem(K.hist(sid),JSON.stringify(h));
 const getWrong=sid=>JSON.parse(localStorage.getItem(K.wrong(sid))||'{}');
 const saveWrong=(sid,w)=>localStorage.setItem(K.wrong(sid),JSON.stringify(w));
+/* 当前用户数据占用（KB），用于提示用户是否需要清理 */
+function storageKB(){
+  try{
+    const s=getSess(); if(!s)return 0;
+    let bytes=0;
+    [K.hist(s.id),K.wrong(s.id)].forEach(k=>{
+      const v=localStorage.getItem(k); if(v)bytes+=new Blob([v]).size;
+    });
+    return (bytes/1024).toFixed(1);
+  }catch(e){return 0;}
+}
 
 /* ================= 状态 ================= */
 let ACCOUNTS={teacherPwdHash:'',students:[]};
@@ -258,7 +269,8 @@ function viewHome(){
       <div class="menu-item" onclick="go('records')"><div class="icon">📊</div><div class="title">考试成绩记录</div><div class="desc">查看历次成绩与试卷回顾</div></div>
       <div class="menu-item" onclick="exportMyData()"><div class="icon">💾</div><div class="title">备份 / 恢复数据</div><div class="desc">更换电脑或浏览器时迁移我的记录</div></div>
     </div>
-    <div class="warn-box">💡 说明：你的考试记录和错题本保存在<b>当前设备的浏览器</b>中。换电脑或清除浏览器数据会丢失记录，请先用"备份/恢复数据"导出文件。</div>
+    <div class="warn-box">💡 说明：你的考试记录和错题本保存在<b>当前设备的浏览器</b>中。换电脑或清除浏览器数据会丢失记录，请先用"备份/恢复数据"导出文件。
+    <br>当前占用约 <b>${storageKB()}</b> KB（浏览器单个网站上限约 5000 KB）。数据偏大导致卡顿时，可到"我的错题本"清空错题本、到"考试成绩记录"清空历史记录。</div>
   </div>`;
 }
 
@@ -402,6 +414,10 @@ function viewWrong(){
       <div class="stat"><div class="v">${entries.length}</div><div class="l">全部错题</div></div>
       <div class="stat"><div class="v" style="color:var(--red)">${high.length}</div><div class="l">高频错题（未通过≥3次）</div></div>
       <div class="stat"><div class="v">${low.length}</div><div class="l">低频错题（未通过1~2次）</div></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn danger" onclick="clearWrongBook()" ${entries.length?'':'disabled style="opacity:.4;cursor:not-allowed"'}>🗑 清空我的错题本（${entries.length}道）</button>
+      <span class="muted">清空后无法恢复，建议先"备份/恢复数据"导出留底；不影响考试成绩记录</span>
     </div></div>
     <div class="warn-box">💡 说明：错题本只收录<b>订正重做时未通过</b>的错题（考试第一次答错的题需先到"成绩记录"里"重做错题"订正，订正没通过的才会进到这里）。题目在这里会一直保留，自己确认已掌握后可以点"从错题本删除"手动剔除。</div>
     <div class="card">
@@ -432,6 +448,18 @@ function delWrong(qid){
   const s=getSess();
   if(!confirm('确定将该题从错题本中删除吗？'))return;
   const w=getWrong(s.id);delete w[qid];saveWrong(s.id,w);render();
+}
+/* 一键清空错题本（防网页存储膨胀导致卡顿） */
+function clearWrongBook(){
+  const s=getSess(); if(!s)return;
+  const n=Object.keys(getWrong(s.id)).length;
+  if(!n){alert('错题本已经是空的');return;}
+  if(!confirm(`确定要清空错题本里的全部 ${n} 道错题吗？\n\n· 高频 / 低频错题全部清零\n· 清空后无法恢复，建议先到首页"备份/恢复数据"导出留底\n· 不影响考试成绩记录和各套试卷的错题清单`))return;
+  if(!confirm(`再次确认：即将清空 ${n} 道错题，此操作不可撤销，确定继续？`))return;
+  saveWrong(s.id,{});
+  wrongFilter='all';
+  render();
+  alert(`已清空错题本，共移除 ${n} 道错题`);
 }
 
 /* ---------- 刷错题 ---------- */
@@ -510,7 +538,11 @@ function viewRecords(){
   const h=getHist(s.id).slice().reverse();
   let html=topbar()+`<div class="container"><div class="card"><h2>📊 考试成绩记录</h2>
   <div style="margin-bottom:12px"><button class="btn secondary" onclick="exportMyData()">📤 导出学习报告（发给教师）</button>
-  <span class="muted" style="margin-left:8px">导出文件通过微信/QQ发给老师，老师导入后即可查看你的成绩与订正情况</span></div>`;
+  <span class="muted" style="margin-left:8px">导出文件通过微信/QQ发给老师，老师导入后即可查看你的成绩与订正情况</span></div>
+  <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <button class="btn danger" onclick="clearRecords()">🗑 清空我的考试成绩记录</button>
+    <span class="muted">仅删除本机的历次成绩与试卷回顾（不影响错题本）；清空后不可恢复</span>
+  </div>`;
   if(!h.length)html+=`<div class="muted" style="padding:20px 0;text-align:center">暂无考试记录</div>`;
   else{
     const avg=(h.reduce((a,b)=>a+b.score,0)/h.length).toFixed(1);
@@ -544,6 +576,18 @@ function reviewOld(idx){
   exam={choice:r.cIds.map(qById).filter(Boolean),judge:r.jIds.map(qById).filter(Boolean),ans:r.ans,score:r.score,wrongIds:r.wrong,submitted:true};
   // 查看旧试卷时不再重复加分/记错题，只展示
   state.view='review';window.scrollTo(0,0);render();
+}
+/* 一键清空考试成绩记录（防网页存储膨胀导致卡顿） */
+function clearRecords(){
+  const s=getSess(); if(!s)return;
+  const n=getHist(s.id).length;
+  if(!n){alert('暂无考试成绩记录');return;}
+  if(!confirm(`确定要清空全部 ${n} 条考试成绩记录吗？\n\n· 历次成绩、平均分、试卷回顾、重做错题入口都会消失\n· 清空后不可恢复，建议先"导出学习报告"留底\n· 错题本里的题不受影响，仍可继续刷\n· 出题查重会从头开始（不影响后续正常出题）`))return;
+  if(!confirm(`再次确认：${n} 条成绩记录将全部删除且无法恢复，确定继续？`))return;
+  saveHist(s.id,[]);
+  redoSess=null;
+  render();
+  alert(`已清空 ${n} 条考试成绩记录`);
 }
 
 /* ---------- 查看某套试卷的错题 ---------- */
