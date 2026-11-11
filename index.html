@@ -79,6 +79,10 @@ th{background:#f8fafc}
 .feedback.right{background:#dcfce7;color:var(--green)}
 .feedback.wrong{background:#fee2e2;color:var(--red)}
 .practice-bar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.redo-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;min-height:34px}
+.redo-next{white-space:nowrap;flex:none}
+.redo-next[disabled]{opacity:.45;cursor:not-allowed;background:var(--primary);border-color:var(--primary)}
+.redo-fb{margin-top:12px;margin-bottom:0}
 .hidden{display:none}
 .section-title{background:#eff6ff;border-left:4px solid var(--primary);padding:8px 12px;border-radius:0 8px 8px 0;margin:20px 0 14px;font-weight:bold}
 .login-box{max-width:400px;margin:60px auto}
@@ -490,12 +494,13 @@ function viewPractice(){
       <b>📕 刷错题 ${practice.idx+1} / ${practice.ids.length}</b>
       <span class="muted">该题历史错误：<b style="color:var(--red)">${w[q.id]||1}</b> 次 ${w[q.id]>=3?'<span class="tag high">高频</span>':'<span class="tag low">低频</span>'}</span>
     </div>`;
-  if(practice.answered){
-    const ok=practice.picked===q.ans;
-    html+=`<div class="feedback ${ok?'right':'wrong'}">${ok?'✔ 回答正确，继续保持！':'✘ 又答错了！该题错误次数已 +1'}</div>`;
-  }
+  const pickOk=practice.answered&&practice.picked===q.ans;
   html+=`<div class="card">
-    <div class="q-stem"><span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选':'判断'}</span>${esc(q.stem)}</div>`;
+    <div class="redo-head">
+      <span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选题':'判断题'}</span>
+      <button class="btn redo-next" onclick="practiceNext()" ${practice.answered?'':'disabled'}>${practice.idx+1>=practice.ids.length?'完成 ✔':'下一题 →'}</button>
+    </div>
+    <div class="q-stem">${esc(q.stem)}</div>`;
   const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
   opts.forEach(([L,txt])=>{
     let c='';
@@ -505,14 +510,15 @@ function viewPractice(){
     }
     html+=`<div class="opt ${c}" ${practice.answered?'':`onclick="practicePick('${L}')"`}><span class="letter">${L}</span>${esc(txt)}</div>`;
   });
-  if(practice.answered)html+=`<div class="muted">正确答案：${q.ans} ｜ 你的答案：${practice.picked}</div>`;
-  html+=`</div><div class="practice-bar">`;
   if(practice.answered){
-    html+=`<button class="btn danger" onclick="delWrongPractice()">删除该错题</button>
-      <button class="btn" onclick="practiceNext()">${practice.idx+1>=practice.ids.length?'完成 ✔':'下一题 →'}</button>`;
+    html+=`<div class="muted" style="margin-top:10px">正确答案：${q.ans} ｜ 你的答案：${practice.picked}</div>`;
+    html+=`<div class="feedback redo-fb ${pickOk?'right':'wrong'}">${pickOk?'✔ 回答正确，继续保持！':'✘ 又答错了！该题错误次数已 +1'}</div>`;
   }else{
-    html+=`<button class="btn danger" onclick="delWrongPractice()">删除该错题</button><span class="muted">点击选项作答，答完立即显示对错</span>`;
+    html+=`<div class="muted" style="margin-top:10px">点击选项作答，答完立即显示对错</div>`;
   }
+  html+=`</div><div class="practice-bar">`;
+  html+=`<button class="btn danger" onclick="delWrongPractice()">删除该错题</button>
+    <span class="muted">确认已掌握可删除；刷题时答错会累计错误次数</span>`;
   html+=`</div></div>`;
   $app.innerHTML=html;
 }
@@ -675,11 +681,12 @@ function viewRedo(){
       <span class="muted">本轮进度：第 <b style="color:var(--primary)">${redoSess.pos+1}</b> / ${redoSess.items.length} 题 ｜ 本题是第 <b style="color:var(--primary)">${item.attempt}</b> 遍作答</span>
       <a class="muted" style="cursor:pointer" onclick="quitRedo()">保存进度并退出</a>
     </div>`;
-  if(redoSess.answered){
-    html+=`<div class="feedback ${redoSess.fbOk?'right':'wrong'}">${redoSess.fb}</div>`;
-  }
   html+=`<div class="card">
-    <div class="q-stem"><span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选':'判断'}</span>${esc(q.stem)}</div>`;
+    <div class="redo-head">
+      <span class="qtype ${q.type==='choice'?'choice':'judge'}">${q.type==='choice'?'单选题':'判断题'}</span>
+      <button class="btn redo-next" onclick="redoNext()" ${redoSess.answered?'':'disabled'}>下一题 →</button>
+    </div>
+    <div class="q-stem">${esc(q.stem)}</div>`;
   const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
   opts.forEach(([L,txt])=>{
     let c='';
@@ -689,12 +696,12 @@ function viewRedo(){
     }
     html+=`<div class="opt ${c}" ${redoSess.answered?'':`onclick="redoPick('${L}')"`}><span class="letter">${L}</span>${esc(txt)}</div>`;
   });
-  if(redoSess.answered)html+=`<div class="muted">正确答案：${q.ans} ｜ 你的答案：${redoSess.picked}</div>`;
-  html+=`</div>`;
   if(redoSess.answered){
-    html+=`<div class="practice-bar"><button class="btn" onclick="redoNext()">下一题 →</button></div>`;
+    html+=`<div class="muted" style="margin-top:10px">正确答案：${q.ans} ｜ 你的答案：${redoSess.picked}</div>`;
+    // 对错提示放到选项下方，避免遮挡题目、减少视觉干扰
+    html+=`<div class="feedback redo-fb ${redoSess.fbOk?'right':'wrong'}">${redoSess.fb}</div>`;
   }else{
-    html+=`<div class="practice-bar"><span class="muted">点击选项作答，答完立即显示对错</span></div>`;
+    html+=`<div class="muted" style="margin-top:10px">点击选项作答，答完立即显示对错</div>`;
   }
   html+=`</div>`;
   $app.innerHTML=html;
