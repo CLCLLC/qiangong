@@ -648,7 +648,7 @@ function startRedo(idx){
   const ids=r.wrong.slice();
   if(!ids.length){alert('本套试卷的错题已全部订正完成！');return;}
   if(!confirm(`重做规则：\n1. 本套共 ${ids.length} 道错题，打乱后每题出 2 遍（共 ${ids.length*2} 题）\n2. 一道题的 2 遍都答对 => 掌握，自动从错题本移除\n3. 任何一遍答错 => 该题进入下一轮，重新出 2 遍\n4. 全部掌握后本套试卷即通关（已订正 ✅）\n\n开始重做吗？`))return;
-  redoSess={examIdx:idx,total:ids.length,mastered:0,round:1,roundQids:ids,res:{},items:buildRound(ids),pos:0,answered:false,picked:null,fb:'',fbOk:false,masteredNow:false};
+  redoSess={examIdx:idx,total:ids.length,mastered:0,round:1,roundQids:ids,res:{},items:buildRound(ids),pos:0,answered:false,picked:null,fb:'',fbOk:false,masteredNow:false,roundMsg:false};
   state.view='redo';window.scrollTo(0,0);render();
 }
 function viewRedo(){
@@ -671,6 +671,21 @@ function viewRedo(){
   const item=redoSess.items[redoSess.pos];
   const q=qById(item.qid);
   if(!q){redoSess.items.splice(redoSess.pos,1);if(redoSess.pos>=redoSess.items.length)endRound();render();return;}
+  // 上一轮结束：显示本轮开始卡片（不可直接作答，避免跳过第 1 题）
+  if(redoSess.roundMsg){
+    $app.innerHTML=topbar()+`<div class="container">
+      <div class="score-banner"><div>📢 第 ${redoSess.round-1} 轮结束</div><div class="num">第 ${redoSess.round} 轮</div>
+      <div>${esc(redoSess.fb)}</div></div>
+      <div class="card" style="text-align:center;padding:30px">
+        <div style="font-size:40px;margin-bottom:10px">🔁</div>
+        <h2>第 ${redoSess.round} 轮订正</h2>
+        <p class="muted">剩余 ${redoSess.items.length/2} 道未掌握，每题重新出 2 遍（顺序已打乱）<br>两遍都答对即掌握，全部掌握即通关</p>
+        <button class="btn" onclick="redoRoundGo()">▶ 开始第 ${redoSess.round} 轮</button>
+      </div>
+      <div class="card"><button class="btn secondary" onclick="quitRedo()">保存进度并退出</button></div>
+    </div>`;
+    return;
+  }
   const remain=redoSess.total-redoSess.mastered;
   let html=topbar()+`<div class="container">
     <div class="practice-bar">
@@ -710,7 +725,8 @@ function redoPick(L){
   const s=getSess();
   const item=redoSess.items[redoSess.pos];
   const q=qById(item.qid);
-  const st=redoSess.res[item.qid]||(redoSess.res[item.qid]={c:0,x:0});
+  const st=redoSess.res[item.qid]||(redoSess.res[item.qid]={c:0,x:0,ap:0});
+  st.ap=(st.ap||0)+1; // 本轮内该题实际是第几遍（不依赖打乱前的标签）
   redoSess.answered=true;redoSess.picked=L;redoSess.masteredNow=false;
   if(L===q.ans){
     st.c++;
@@ -723,7 +739,7 @@ function redoPick(L){
       redoSess.mastered++;redoSess.masteredNow=true;
       redoSess.fb=`🎉 恭喜！这道题两遍都答对，本套卷中已【掌握】${inPool?'（错题本中仍保留，确认掌握后可在错题本里手动删除）':''}${redoSess.mastered>=redoSess.total?'，本套错题全部订正完成！':''}`;
       redoSess.fbOk=true;
-    }else if(item.attempt===1){
+    }else if(st.ap===1){
       redoSess.fb='✔ 第 1 遍正确！本题稍后还会再出现 1 次，再答对即掌握';
       redoSess.fbOk=true;
     }else{
@@ -761,8 +777,16 @@ function endRound(){
   redoSess.res={};
   redoSess.items=buildRound(failed);
   redoSess.pos=0;
-  redoSess.fb=`📢 第 ${redoSess.round-1} 轮结束：${failed.length} 道题未完全答对，进入第 ${redoSess.round} 轮（每题重新出 2 遍，已重新打乱）`;
-  redoSess.fbOk=false;redoSess.answered=true;redoSess.picked=null;
+  redoSess.fb=`第 ${redoSess.round-1} 轮有 ${failed.length} 道题未完全答对，已重新打乱进入第 ${redoSess.round} 轮（每题重新出 2 遍）`;
+  redoSess.fbOk=false;
+  // 关键修复：不把新轮第 1 题置为"已作答"状态，改为显示轮次过渡卡片，
+  // 否则学生点"下一题"会跳过第 1 题，导致该题永远无法作答、无限循环
+  redoSess.answered=false;redoSess.picked=null;redoSess.roundMsg=true;
+}
+function redoRoundGo(){
+  redoSess.roundMsg=false;
+  redoSess.answered=false;redoSess.picked=null;redoSess.fb='';
+  window.scrollTo(0,0);render();
 }
 function quitRedo(){
   if(!confirm('确定退出重做吗？\n已掌握的题会从本套错题中移除（错题本大池子不受影响，需在错题本里手动删除），未掌握的错题下次点击"重做错题"将重新开始新一轮。'))return;
