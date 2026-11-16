@@ -846,7 +846,7 @@ function startRedo(idx){
   const ids=r.wrong.slice();
   if(!ids.length){alert('本套试卷的错题已全部订正完成！');return;}
   if(!confirm(`重做规则：\n1. 本套共 ${ids.length} 道错题，打乱后每题出 2 遍（共 ${ids.length*2} 题）\n2. 一道题的 2 遍都答对 => 掌握，自动从错题本移除\n3. 任何一遍答错 => 该题进入下一轮，重新出 2 遍\n4. 全部掌握后本套试卷即通关（已订正 ✅）\n\n开始重做吗？`))return;
-  redoSess={examIdx:idx,total:ids.length,mastered:0,round:1,roundQids:ids,res:{},items:buildRound(ids),pos:0,answered:false,picked:null,fb:'',fbOk:false,masteredNow:false,roundMsg:false};
+  redoSess={examIdx:idx,total:ids.length,mastered:0,round:1,roundQids:ids,res:{},items:buildRound(ids),pos:0,answered:false,picked:null,pend:null,fb:'',fbOk:false,masteredNow:false,roundMsg:false};
   state.view='redo';window.scrollTo(0,0);render();
 }
 function viewRedo(){
@@ -901,23 +901,37 @@ function viewRedo(){
     </div>
     <div class="q-stem">${esc(q.stem)}</div>`;
   const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
+  const pend=redoSess.pend;
   opts.forEach(([L,txt])=>{
     let c='';
     if(redoSess.answered){
       if(L===q.ans)c='correct';
       else if(L===redoSess.picked)c='wrongpick';
-    }
-    html+=`<div class="opt ${c}" ${redoSess.answered?'':`onclick="redoPick('${L}')"`}><span class="letter">${L}</span>${esc(txt)}</div>`;
+    }else if(pend===L)c='selected';
+    const okBtn=redoSess.answered?'':`<button class="opt-ok" onclick="event.stopPropagation();confirmRedo('${L}')">确定</button>`;
+    html+=`<div class="opt ${c}" ${redoSess.answered?'':`onclick="pickRedo('${L}')"`}><span class="letter">${L}</span>${esc(txt)}${okBtn}</div>`;
   });
   if(redoSess.answered){
     html+=`<div class="muted" style="margin-top:10px">正确答案：${q.ans} ｜ 你的答案：${redoSess.picked}</div>`;
     // 对错提示放到选项下方，避免遮挡题目、减少视觉干扰
     html+=`<div class="feedback redo-fb ${redoSess.fbOk?'right':'wrong'}">${redoSess.fb}</div>`;
   }else{
-    html+=`<div class="muted" style="margin-top:10px">点击选项作答，答完立即显示对错</div>`;
+    html+=`<div class="muted" style="margin-top:10px">点选项只是选中（可换选），点右侧【确定】才锁定答案并立即显示对错，锁定后不可改</div>`;
   }
   html+=`</div>`;
   $app.innerHTML=html;
+}
+function pickRedo(L){                 // 订正界面：点选项仅选中（可换选），不判定
+  if(!redoSess||redoSess.answered)return;
+  redoSess.pend=L;
+  document.querySelectorAll('#app .opt').forEach(el=>{
+    el.classList.toggle('selected',el.getAttribute('onclick')===`pickRedo('${L}')`);
+  });
+}
+function confirmRedo(L){              // 点【确定】才锁定答案并立即显示对错
+  if(!redoSess||redoSess.answered)return;
+  redoSess.pend=null;
+  redoPick(L);
 }
 function redoPick(L){
   const s=getSess();
@@ -954,7 +968,7 @@ function redoPick(L){
 function redoNext(){
   if(!redoSess.items.length){render();return;}
   redoSess.pos++;
-  redoSess.answered=false;redoSess.picked=null;redoSess.fb='';redoSess.masteredNow=false;
+  redoSess.answered=false;redoSess.picked=null;redoSess.pend=null;redoSess.fb='';redoSess.masteredNow=false;
   if(redoSess.pos>=redoSess.items.length)endRound();
   window.scrollTo(0,0);render();
 }
@@ -979,11 +993,11 @@ function endRound(){
   redoSess.fbOk=false;
   // 关键修复：不把新轮第 1 题置为"已作答"状态，改为显示轮次过渡卡片，
   // 否则学生点"下一题"会跳过第 1 题，导致该题永远无法作答、无限循环
-  redoSess.answered=false;redoSess.picked=null;redoSess.roundMsg=true;
+  redoSess.answered=false;redoSess.picked=null;redoSess.pend=null;redoSess.roundMsg=true;
 }
 function redoRoundGo(){
   redoSess.roundMsg=false;
-  redoSess.answered=false;redoSess.picked=null;redoSess.fb='';
+  redoSess.answered=false;redoSess.picked=null;redoSess.pend=null;redoSess.fb='';
   window.scrollTo(0,0);render();
 }
 function quitRedo(){
