@@ -285,6 +285,7 @@ function render(){
   const dispatch=()=>{
     if(state.view==='login')return viewLogin();
     if(state.view==='home')return viewHome();
+    if(state.view==='seqpapers')return viewSeqPapers();
     if(state.view==='exam')return viewExam();
     if(state.view==='review')return viewReview();
     if(state.view==='wrong')return viewWrong();
@@ -370,20 +371,8 @@ function viewHome(){
       <h2>📝 刷题模式</h2>
       <div style="margin-bottom:6px"><button class="btn" onclick="startExam('rand')">🎲 随机出题</button>
         <span class="muted" style="margin-left:10px">70 单选 + 30 判断，每题 1 分，满分 100 分；智能查重，尽量不与近 10 套卷重复</span></div>
-      <div class="section-title">顺序出题（按题库顺序切卷，每题 0.5 分，满分 100 分）</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px">
-        ${SEQ_PAPERS.map(p=>{
-          const recs=getHist(s.id).filter(r=>r.mode==='seq'&&r.paperNo===p.no-1);
-          const last=recs.length?recs[recs.length-1]:null;
-          const done=last&&last.wrong.length===0;
-          const full=(p.choice.length+p.judge.length)*SEQ_PTS;
-          return `<div style="border:1.5px solid var(--border);border-radius:10px;padding:10px 12px">
-            <div><b>${p.name}</b> <span class="muted" style="font-size:12px">${p.choice.length}单选+${p.judge.length}判断 · 满分${full}分</span></div>
-            <div class="muted" style="font-size:12px;margin:4px 0">${last?`上次：<b style="color:${last.score>=60?'var(--green)':'var(--red)'}">${last.score}分</b> ${done?'✅已订正':'❌未订正完'}`:'未做过'}</div>
-            <button class="btn ${last?'secondary':''} small" onclick="startExam('seq',${p.no-1})">${last?'再做一遍':'开始做题'}</button>
-          </div>`;
-        }).join('')}
-      </div>
+      <div><button class="btn secondary" onclick="go('seqpapers')">📚 顺序出题（6 套卷）</button>
+        <span class="muted" style="margin-left:10px">按题库顺序切 6 套卷，每题 0.5 分，满分 100 分；点进去选择套卷</span></div>
     </div>
     <div class="menu-grid">
       <div class="menu-item" onclick="go('wrong')"><div class="icon">📕</div><div class="title">我的错题本</div><div class="desc">${wrongN}道错题，其中高频错题${highN}道</div></div>
@@ -393,6 +382,30 @@ function viewHome(){
     <div class="warn-box">💡 说明：你的考试记录和错题本保存在<b>当前设备的浏览器</b>中。换电脑或清除浏览器数据会丢失记录，请先用"备份/恢复数据"导出文件。
     <br>当前占用约 <b>${storageKB()}</b> KB（浏览器单个网站上限约 5000 KB）。数据偏大导致卡顿时，可到"我的错题本"清空错题本、到"考试成绩记录"清空历史记录。</div>
   </div>`;
+}
+
+/* ---------- 顺序出题：套卷列表（从主页点进来） ---------- */
+function viewSeqPapers(){
+  const s=getSess(); if(!s)return logout();
+  const hist=getHist(s.id);
+  let html=topbar()+`<div class="container">
+    <div class="card"><h2>📚 顺序出题（按题库顺序切卷）</h2>
+    <div class="muted">前 5 套每套 140 单选 + 60 判断，第 6 套收剩余题目；每题 0.5 分，满分 100 分。
+    做完的卷子可在"考试成绩记录"里回顾并订正错题。</div></div>
+    <div class="card"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px">`;
+  html+=SEQ_PAPERS.map(p=>{
+    const recs=hist.filter(r=>r.mode==='seq'&&r.paperNo===p.no-1);
+    const last=recs.length?recs[recs.length-1]:null;
+    const done=last&&last.wrong.length===0;
+    const full=(p.choice.length+p.judge.length)*SEQ_PTS;
+    return `<div style="border:1.5px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div><b>${p.name}</b> <span class="muted" style="font-size:12px">${p.choice.length}单选+${p.judge.length}判断 · 满分${full}分</span></div>
+      <div class="muted" style="font-size:12px;margin:4px 0">${last?`上次：<b style="color:${last.score>=60?'var(--green)':'var(--red)'}">${last.score}分</b> ${done?'✅已订正':'❌未订正完'}`:'未做过'}</div>
+      <button class="btn ${last?'secondary':''} small" onclick="startExam('seq',${p.no-1})">${last?'再做一遍':'开始做题'}</button>
+    </div>`;
+  }).join('');
+  html+=`</div></div></div>`;
+  $app.innerHTML=html;
 }
 
 /* ---------- 考试 ---------- */
@@ -909,7 +922,7 @@ function viewRedo(){
       else if(L===redoSess.picked)c='wrongpick';
     }else if(pend===L)c='selected';
     const okBtn=redoSess.answered?'':`<button class="opt-ok" onclick="event.stopPropagation();confirmRedo('${L}')">确定</button>`;
-    html+=`<div class="opt ${c}" ${redoSess.answered?'':`onclick="pickRedo('${L}')"`}><span class="letter">${L}</span>${esc(txt)}${okBtn}</div>`;
+    html+=`<div class="opt ${c}" ${redoSess.answered?'':`onclick="pickRedo('${L}')"`}><span class="letter">${L}</span><span class="txt">${esc(txt)}</span>${okBtn}</div>`;
   });
   if(redoSess.answered){
     html+=`<div class="muted" style="margin-top:10px">正确答案：${q.ans} ｜ 你的答案：${redoSess.picked}</div>`;
