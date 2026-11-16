@@ -110,6 +110,12 @@ th{background:#f8fafc}
 <script>
 /* ================= 数据加载（accounts.js 动态加载，绕过缓存） ================= */
 const QBANK = window.QUESTION_BANK || [];
+// 归一化题干（去 HTML 标签、全角转半角、去空白），用于同题判重（题库中存在仅标点不同的重复题）
+QBANK.forEach(q=>{
+  q.ns=(q.stem||'').replace(/<[^>]+>/g,'')
+    .replace(/[\uFF01-\uFF5E]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+    .replace(/\s+/g,'');
+});
 function loadAccounts(cb){
   const s=document.createElement('script');
   s.src='data/accounts.js?v='+Date.now();
@@ -133,15 +139,27 @@ function download(name,content){
   a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 const LETTERS=['A','B','C','D','E','F','G'];
-const qById=id=>QBANK[id];
+const QMAP={};QBANK.forEach(q=>{if(QMAP[q.id])console.warn('dup id',q.id);QMAP[q.id]=q;});
+const qById=id=>QMAP[id];
 
 /* ================= 存储键 ================= */
 const K={
   sess:'qz_session',
   hist:id=>`qz_hist_${id}`,      // 考试记录数组
   wrong:id=>`qz_wrong_${id}`,    // 错题本 {qid:count}
-  ex:id=>`qz_examsess_${id}`     // 未交卷的答题进度（防闪退丢失）
+  ex:id=>`qz_examsess_${id}`,     // 未交卷的答题进度（防闪退丢失）
+  bankver:id=>`qz_bankver_${id}` // 题库版本号（换题库后自动重置该生记录）
 };
+/* 题库版本检测：题库更换后旧记录里的题号对不上新题库，自动清空该生考试记录/错题本 */
+const BANK_VER='v2_1196_20261116';
+function ensureBankVer(sid){
+  const v=localStorage.getItem(K.bankver(sid));
+  if(v===BANK_VER)return;
+  const hadHist=getHist(sid).length, hadWrong=Object.keys(getWrong(sid)).length;
+  saveHist(sid,[]);saveWrong(sid,{});clearExamSess(sid);
+  localStorage.setItem(K.bankver(sid),BANK_VER);
+  if(hadHist||hadWrong)alert('题库已更换为新版总题库（共1196题），你的历史考试记录与错题本已重置，请重新开始刷题。');
+}
 const getSess=()=>JSON.parse(localStorage.getItem(K.sess)||'null');
 const setSess=v=>v?localStorage.setItem(K.sess,JSON.stringify(v)):localStorage.removeItem(K.sess);
 const getHist=sid=>JSON.parse(localStorage.getItem(K.hist(sid))||'[]');
@@ -167,38 +185,82 @@ function storageKB(){
 let ACCOUNTS={teacherPwdHash:'',students:[]};
 let state={view:'login'};
 
-/* ================= 组卷（70单选+30判断，与近11套重复率尽量低） ================= */
-const RECENT_N=11;          // 查重窗口：近 11 套
+/* ================= 随机组卷（70单选+30判断，重复率尽量低） ================= */
+const WIN_CHOICE=10;        // 单选查重窗口：近 10 套
+const WIN_JUDGE=10;         // 判断查重窗口：近 10 套
 const N_CHOICE=70;          // 每套单选
 const N_JUDGE=30;           // 每套判断
-/* 原理：为长期可持续，每套引入的"全新题"数量不超过 floor(题库/(窗口+1))。
-   这样 12 套内不重复超过题库容量，理论上可做到零重复；
-   题库不足时才用"最久未考"的旧题补，重复数天然最小。 */
+/* 数学边界（题库共 1196 题 = 866 单选 + 325 判断）：
+   单选：窗口 10 套需 70×(10+1)=770 ≤ 866 可用 → 每套都能取到全新题，零重复；
+   判断：窗口 10 套需 30×11=330，比 325 只差 5 题 → 稳态下每套约 25~30 道全新，
+        极端情况最多补 5 道近期旧题（≈5 题/100 题，成对重复更低）。
+   窗口从 12 缩到 10 后可用余量充裕，实际出卷基本见不到重复题。
+   补位旧题只从最近 3 套里随机挑（与任意一套的成对重复也很低），且避开
+   "下一套就要过期变新题"的那一批，保证新题供给管线不被抽干。 */
+function qkey(q){return q.ns+'#'+q.opts.map(o=>o.replace(/\s+/g,'')).sort().join('|');}
 function genExam(sid){
   const hist=getHist(sid);
-  const win=hist.slice(-RECENT_N);
-  const base=hist.length-win.length;
-  const lastSeen={};            // 题目 → 最近出现的套序号（越大越新）
-  win.forEach((r,ri)=>{
-    const ord=base+ri;
-    r.cIds.forEach(i=>{lastSeen['c'+i]=ord;});
-    r.jIds.forEach(i=>{lastSeen['j'+i]=ord;});
+  const lastSeen={};            // 题目键 → 最近出现的套序号（越大越新）
+  hist.forEach((r,ri)=>{
+    r.cIds.forEach(i=>{const q=qById(i); if(q)lastSeen[qkey(q)]=ri;});
+    r.jIds.forEach(i=>{const q=qById(i); if(q)lastSeen[qkey(q)]=ri;});
   });
-  function pick(type,n){
-    const pre=type==='choice'?'c':'j';
+  function pick(type,n,winN){
+    const cutoff=hist.length-winN;                     // 近 winN 套的起始序号
+    const len=hist.length;
     const pool=QBANK.filter(q=>q.type===type);
-    const fresh=shuffle(pool.filter(q=>lastSeen[pre+q.id]===undefined));
-    const used=pool.filter(q=>lastSeen[pre+q.id]!==undefined)
-                 .sort((a,b)=>lastSeen[pre+a.id]-lastSeen[pre+b.id]); // 最久未考在前
-    const xMax=Math.floor(pool.length/(RECENT_N+1));   // 每套可持续引入的新题上限
+    // 真同题（题干+选项都相同）只保留一份，保证一套卷内不出现重复题
+    const byKey={};
+    pool.forEach(q=>{
+      const k=qkey(q);
+      const cur=byKey[k];
+      if(!cur)byKey[k]=q;
+      else{
+        const s1=lastSeen[k]===undefined?-1:lastSeen[k];
+        const s2=lastSeen[qkey(cur)]===undefined?-1:lastSeen[qkey(cur)];
+        if(s1<s2)byKey[k]=q;
+      }
+    });
+    const uniq=Object.values(byKey);
+    const fresh=shuffle(uniq.filter(q=>{const s=lastSeen[qkey(q)];return s===undefined||s<cutoff;}));
+    // 补位优先级：最近 3 套的旧题 → 窗口内其他旧题 → 快过期的那批（极端情况）
+    const recent=shuffle(uniq.filter(q=>{const s=lastSeen[qkey(q)];return s!==undefined&&s>=len-3;}));
+    const mid=shuffle(uniq.filter(q=>{const s=lastSeen[qkey(q)];return s!==undefined&&s>cutoff&&s<len-3;}));
+    const dying=uniq.filter(q=>lastSeen[qkey(q)]===cutoff);
+    const xMax=Math.ceil(uniq.length/(winN+1));    // 每套可持续引入的新题上限
     const nFresh=Math.min(fresh.length,n,Math.max(xMax,0));
     const sel=fresh.slice(0,nFresh);
-    const need=n-sel.length;
-    if(need>0)sel.push(...used.slice(0,need));         // 新题不足：用最久未考的补
+    let need=n-sel.length;
+    for(const src of [recent,mid,dying]){
+      if(need<=0)break;
+      const take=Math.min(need,src.length);
+      sel.push(...src.slice(0,take));need-=take;
+    }
+    if(sel.length<n)sel.push(...fresh.slice(nFresh,nFresh+(n-sel.length))); // 首考等场景补齐
     return shuffle(sel);
   }
-  return {choice:pick('choice',N_CHOICE),judge:pick('judge',N_JUDGE)};
+  return {choice:pick('choice',N_CHOICE,WIN_CHOICE),judge:pick('judge',N_JUDGE,WIN_JUDGE)};
 }
+
+/* ================= 顺序出题：按题库顺序切 6 套卷 =================
+   每套 140 单选 + 60 判断 = 200 题，每题 0.5 分，满分 100 分；
+   第 6 套用剩余题目（本库 871 单选+325 判断 → 第 6 套 171+25=196 题，满分 98 分） */
+const SEQ_C=140, SEQ_J=60, SEQ_PTS=0.5;
+const SEQ_PAPERS=(()=>{
+  const cs=QBANK.filter(q=>q.type==='choice');   // QBANK 本身即题库原始顺序
+  const js=QBANK.filter(q=>q.type==='judge');
+  const nP=Math.max(Math.floor(cs.length/SEQ_C),Math.floor(js.length/SEQ_J));
+  const papers=[];
+  for(let i=0;i<nP;i++){
+    const last=i===nP-1;
+    // 前面每套固定 140 单选+60 判断；最后一套收全部剩余题（数量不够也照出）
+    const choice=cs.slice(i*SEQ_C, last?cs.length:(i+1)*SEQ_C);
+    const judge=js.slice(i*SEQ_J, last?js.length:(i+1)*SEQ_J);
+    if(!choice.length&&!judge.length)continue;
+    papers.push({no:i+1,name:`顺序卷 ${i+1}`,choice,judge});
+  }
+  return papers;
+})();
 
 /* ================= 视图渲染 ================= */
 function render(){
@@ -258,12 +320,14 @@ function doLogin(){
   const err=document.getElementById('loginErr');
   if(!st){err.textContent='该学号不存在，请联系教师添加账号。';return;}
   setSess({id:st.id,name:st.name||st.id});
+  ensureBankVer(st.id);
   go('home');
 }
 
 /* ---------- 学生首页 ---------- */
 function viewHome(){
   const s=getSess(); if(!s)return logout();
+  ensureBankVer(s.id);
   const hist=getHist(s.id), wrong=getWrong(s.id);
   const wrongN=Object.keys(wrong).length;
   const highN=Object.values(wrong).filter(c=>c>3).length;
@@ -286,8 +350,26 @@ function viewHome(){
       <button class="btn" onclick="resumeExam()">▶ 继续答题</button>
       <button class="btn danger small" style="margin-left:10px" onclick="discardExam()">放弃这套，重新开始</button>
     </div>`:''}
+    <div class="card">
+      <h2>📝 刷题模式</h2>
+      <div style="margin-bottom:6px"><button class="btn" onclick="startExam('rand')">🎲 随机出题</button>
+        <span class="muted" style="margin-left:10px">70 单选 + 30 判断，每题 1 分，满分 100 分；智能查重，尽量不与近 10 套卷重复</span></div>
+      <div class="section-title">顺序出题（按题库顺序切卷，每题 0.5 分，满分 100 分）</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px">
+        ${SEQ_PAPERS.map(p=>{
+          const recs=getHist(s.id).filter(r=>r.mode==='seq'&&r.paperNo===p.no-1);
+          const last=recs.length?recs[recs.length-1]:null;
+          const done=last&&last.wrong.length===0;
+          const full=(p.choice.length+p.judge.length)*SEQ_PTS;
+          return `<div style="border:1.5px solid var(--border);border-radius:10px;padding:10px 12px">
+            <div><b>${p.name}</b> <span class="muted" style="font-size:12px">${p.choice.length}单选+${p.judge.length}判断 · 满分${full}分</span></div>
+            <div class="muted" style="font-size:12px;margin:4px 0">${last?`上次：<b style="color:${last.score>=60?'var(--green)':'var(--red)'}">${last.score}分</b> ${done?'✅已订正':'❌未订正完'}`:'未做过'}</div>
+            <button class="btn ${last?'secondary':''} small" onclick="startExam('seq',${p.no-1})">${last?'再做一遍':'开始做题'}</button>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
     <div class="menu-grid">
-      <div class="menu-item" onclick="startExam()"><div class="icon">📝</div><div class="title">开始模拟考试</div><div class="desc">70单选 + 30判断，每题1分，满分100分</div></div>
       <div class="menu-item" onclick="go('wrong')"><div class="icon">📕</div><div class="title">我的错题本</div><div class="desc">${wrongN}道错题，其中高频错题${highN}道</div></div>
       <div class="menu-item" onclick="go('records')"><div class="icon">📊</div><div class="title">考试成绩记录</div><div class="desc">查看历次成绩与试卷回顾</div></div>
       <div class="menu-item" onclick="exportMyData()"><div class="icon">💾</div><div class="title">备份 / 恢复数据</div><div class="desc">更换电脑或浏览器时迁移我的记录</div></div>
@@ -299,17 +381,24 @@ function viewHome(){
 
 /* ---------- 考试 ---------- */
 let exam=null;
-function startExam(){
+/* mode: 'rand'=随机出题(70+30,每题1分)  'seq'=顺序出题(第paperNo套,每题0.5分) */
+function startExam(mode,paperNo){
   const s=getSess(); if(!s)return logout();
   const saved=getExamSess(s.id);
   if(saved&&saved.ans&&Object.keys(saved.ans).length){
-    if(confirm(`检测到上次未交卷的答题记录（已答 ${Object.keys(saved.ans).length} 题）。\n\n点"确定"继续上次那套题，点"取消"放弃并重新出一套新题。`)){
+    if(confirm(`检测到上次未交卷的答题记录（已答 ${Object.keys(saved.ans).length} 题）。\n\n点"确定"继续上次那套题，点"取消"放弃并重新开始。`)){
       resumeExam();return;
     }
     clearExamSess(s.id);
   }
-  const g=genExam(s.id);
-  exam={choice:g.choice,judge:g.judge,ans:{},submitted:false};
+  if(mode==='seq'){
+    const p=SEQ_PAPERS[paperNo];
+    if(!p)return go('home');
+    exam={mode:'seq',paperNo,pts:SEQ_PTS,choice:p.choice,judge:p.judge,ans:{},submitted:false};
+  }else{
+    const g=genExam(s.id);
+    exam={mode:'rand',paperNo:null,pts:1,choice:g.choice,judge:g.judge,ans:{},submitted:false};
+  }
   saveExamProgress();
   state.view='exam';window.scrollTo(0,0);render();
 }
@@ -317,8 +406,9 @@ function startExam(){
 function resumeExam(){
   const s=getSess();if(!s)return logout();
   const saved=getExamSess(s.id);
-  if(!saved){startExam();return;}
-  exam={choice:saved.cIds.map(qById).filter(Boolean),judge:saved.jIds.map(qById).filter(Boolean),ans:{...saved.ans},submitted:false};
+  if(!saved){startExam('rand');return;}
+  exam={mode:saved.mode||'rand',paperNo:saved.paperNo??null,pts:saved.pts||1,
+        choice:saved.cIds.map(qById).filter(Boolean),judge:saved.jIds.map(qById).filter(Boolean),ans:{...saved.ans},submitted:false};
   state.view='exam';window.scrollTo(0,0);render();
 }
 function discardExam(){
@@ -329,7 +419,7 @@ function discardExam(){
 /* 每答一题就把整份进度写入浏览器存储，闪退/刷新都不丢 */
 function saveExamProgress(){
   const s=getSess();if(!s||!exam)return;
-  try{saveExamSess(s.id,{ts:Date.now(),cIds:exam.choice.map(q=>q.id),jIds:exam.judge.map(q=>q.id),ans:exam.ans});}catch(e){}
+  try{saveExamSess(s.id,{ts:Date.now(),mode:exam.mode,paperNo:exam.paperNo,pts:exam.pts,cIds:exam.choice.map(q=>q.id),jIds:exam.judge.map(q=>q.id),ans:exam.ans});}catch(e){}
 }
 const examPending={};   // 暂选未确认的答案 {qid:letter}，点"确定"后才算数
 function pickOpt(qid,letter){
@@ -389,15 +479,16 @@ function submitExam(){
   if(!confirm('确认交卷？'))return;
   const s=getSess();
   exam.submitted=true;
-  let score=0;const wrongIds=[];
+  let rightN=0;const wrongIds=[];
   [...exam.choice,...exam.judge].forEach(q=>{
-    if(exam.ans[q.id]===q.ans)score+=1;
+    if(exam.ans[q.id]===q.ans)rightN++;
     else{wrongIds.push(q.id);}
   });
-  score=Math.round(score*10)/10;
+  const score=Math.round((total-wrongIds.length)*exam.pts*10)/10;   // 随机卷每题1分；顺序卷每题0.5分
   // 考试错题不直接进错题本；订正重做时未通过第一轮的题才会纳入错题本
   const h=getHist(s.id);
-  h.push({ts:Date.now(),score,cIds:exam.choice.map(q=>q.id),jIds:exam.judge.map(q=>q.id),ans:{...exam.ans},wrong:wrongIds});
+  h.push({ts:Date.now(),score,mode:exam.mode,paperNo:exam.paperNo,pts:exam.pts,
+          cIds:exam.choice.map(q=>q.id),jIds:exam.judge.map(q=>q.id),ans:{...exam.ans},wrong:wrongIds});
   if(h.length>50)h.splice(0,h.length-50);
   saveHist(s.id,h);
   clearExamSess(s.id);   // 已交卷，清除未交卷进度缓存
@@ -407,7 +498,10 @@ function submitExam(){
 function viewExam(){
   if(!exam)return go('home');
   let html=topbar()+`<div class="container">`;
-  html+=`<div class="card"><h2>📝 模拟考试</h2><div class="muted">共 100 题（单选70 + 判断30），每题 1 分，满分 100 分。<b>点选项只是选中（可换选），点右侧【确定】才锁定答案</b>并立即标出对错（<span style="color:var(--green)">绿框=答对</span> / <span style="color:var(--red)">红框=答错</span>，锁定后不可改），已锁定的答案实时自动保存，答完点击底部"交卷"。</div></div>`;
+  const total=exam.choice.length+exam.judge.length;
+  const full=total*exam.pts;
+  const label=exam.mode==='seq'?`${SEQ_PAPERS[exam.paperNo]?.name||'顺序卷'}（按题库顺序出题）`:'模拟考试（随机出题）';
+  html+=`<div class="card"><h2>📝 ${label}</h2><div class="muted">共 ${total} 题（单选${exam.choice.length} + 判断${exam.judge.length}），每题 ${exam.pts} 分，满分 ${full} 分。<b>点选项只是选中（可换选），点右侧【确定】才锁定答案</b>并立即标出对错（<span style="color:var(--green)">绿框=答对</span> / <span style="color:var(--red)">红框=答错</span>，锁定后不可改），已锁定的答案实时自动保存，答完点击底部"交卷"。</div></div>`;
   const block=(list,startNo,label,cls)=>{
     let s=`<div class="section-title">${label}</div>`;
     list.forEach((q,i)=>{
@@ -430,7 +524,7 @@ function viewExam(){
     });
     return s;
   };
-  html+=`<div class="card">`+block(exam.choice,1,'一、单项选择题（共70题）','choice')+block(exam.judge,71,'二、判断题（共30题）','judge')+`</div>`;
+  html+=`<div class="card">`+block(exam.choice,1,`一、单项选择题（共${exam.choice.length}题）`,'choice')+block(exam.judge,exam.choice.length+1,`二、判断题（共${exam.judge.length}题）`,'judge')+`</div>`;
   html+=`<div class="answer-card">
     <div><span class="progress" id="progText"></span>
       <a class="muted" style="cursor:pointer;margin-left:12px" onclick="toggleCard()">📋 题号预览</a></div>
@@ -455,10 +549,11 @@ function viewReview(){
   let html=topbar()+`<div class="container">`;
   const s=getSess();
   const w=getWrong(s.id);
+  const full=(exam.choice.length+exam.judge.length)*(exam.pts||1);
   html+=`<div class="score-banner"><div>本次考试成绩</div><div class="num">${rec.score}</div>
-    <div>满分 100 分 · ${esc(s.name||s.id)} · 初次成绩 · 订正状态：${(rec.wrongIds||[]).length===0?'<span style="color:var(--green)">✅ 已全部订正</span>':`<span style="color:var(--red)">❌ 未订正</span>（请在成绩记录中"重做错题"订正，未订正通过的题会进入错题本）`}</div></div>`;
+    <div>满分 ${full} 分 · ${esc(s.name||s.id)} · 初次成绩 · 订正状态：${(rec.wrongIds||[]).length===0?'<span style="color:var(--green)">✅ 已全部订正</span>':`<span style="color:var(--red)">❌ 未订正</span>（请在成绩记录中"重做错题"订正，未订正通过的题会进入错题本）`}</div></div>`;
   html+=`<div class="card"><button class="btn" onclick="go('wrong')">去刷错题 →</button>
-    <button class="btn secondary" onclick="startExam()">再来一套</button>
+    <button class="btn secondary" onclick="startExam('rand')">再来一套随机卷</button>
     <button class="btn secondary" onclick="go('home')">返回首页</button></div>`;
   html+=`<div class="card"><h2>答案回顾（红色=答错，绿色=正确答案）</h2>`;
   const block=(list,startNo,label,cls)=>{
@@ -480,7 +575,7 @@ function viewReview(){
     });
     return out;
   };
-  html+=block(exam.choice,1,'单项选择题','choice')+block(exam.judge,71,'判断题','judge')+`</div></div>`;
+  html+=block(exam.choice,1,'单项选择题','choice')+block(exam.judge,exam.choice.length+1,'判断题','judge')+`</div></div>`;
   $app.innerHTML=html;
 }
 
@@ -639,12 +734,12 @@ function viewRecords(){
       <div class="stat"><div class="v">${avg}</div><div class="l">平均分</div></div>
       <div class="stat"><div class="v">${Math.max(...h.map(x=>x.score))}</div><div class="l">最高分</div></div>
       <div class="stat"><div class="v" style="color:var(--green)">${corrected}/${h.length}</div><div class="l">已订正完成</div></div></div>
-      <table style="margin-top:14px"><tr><th>时间</th><th>姓名</th><th>初次成绩</th><th>订正状态</th><th>操作</th></tr>`;
+      <table style="margin-top:14px"><tr><th>时间</th><th>卷别</th><th>姓名</th><th>初次成绩</th><th>订正状态</th><th>操作</th></tr>`;
     h.forEach((r,i)=>{
       const recIdx=getHist(s.id).length-1-i;
       const done=r.wrong.length===0;
       const status=done?'<span style="color:var(--green)">✅ 已全部订正</span>':`<span style="color:var(--red)">❌ 未订正 ${r.wrong.length} 道</span>`;
-      html+=`<tr><td>${fmtTime(r.ts)}</td><td>${esc(s.name||s.id)}</td><td><b style="color:${r.score>=60?'var(--green)':'var(--red)'}">${r.score}</b></td>
+      html+=`<tr><td>${fmtTime(r.ts)}</td><td>${paperLabel(r)}</td><td>${esc(s.name||s.id)}</td><td><b style="color:${r.score>=60?'var(--green)':'var(--red)'}">${r.score}</b></td>
         <td>${status}</td>
         <td style="white-space:nowrap">
           <button class="btn secondary small" onclick="viewExamWrong(${recIdx})">本套错题</button>
@@ -657,9 +752,13 @@ function viewRecords(){
   html+=`</div></div>`;
   $app.innerHTML=html;
 }
-function reviewOld(idx){
-  const s=getSess();const r=getHist(s.id)[idx];
-  exam={choice:r.cIds.map(qById).filter(Boolean),judge:r.jIds.map(qById).filter(Boolean),ans:r.ans,score:r.score,wrongIds:r.wrong,submitted:true};
+/* 记录的卷别标签：随机卷 / 顺序卷N（兼容旧记录：无 mode 字段视为随机卷） */
+function paperLabel(r){
+  return r&&r.mode==='seq'?`顺序卷${(r.paperNo??0)+1}`:'随机卷';
+}
+function reviewOld(idx){  const s=getSess();const r=getHist(s.id)[idx];
+  exam={mode:r.mode||'rand',paperNo:r.paperNo??null,pts:r.pts||1,
+        choice:r.cIds.map(qById).filter(Boolean),judge:r.jIds.map(qById).filter(Boolean),ans:r.ans,score:r.score,wrongIds:r.wrong,submitted:true};
   // 查看旧试卷时不再重复加分/记错题，只展示
   state.view='review';window.scrollTo(0,0);render();
 }
@@ -685,7 +784,7 @@ function viewExamWrong(idx){
   const done0=r.wrong.length===0;
   const status0=done0?'<span style="color:var(--green)">✅ 已全部订正</span>':'<span style="color:var(--red)">❌ 未订正</span>';
   let html=topbar()+`<div class="container">
-    <div class="score-banner"><div>第 ${idx+1} 次考试</div><div class="num">${r.score}</div>
+    <div class="score-banner"><div>${paperLabel(r)} · 第 ${idx+1} 次考试</div><div class="num">${r.score}</div>
     <div>${fmtTime(r.ts)} · ${esc(s.name||s.id)} · 初次成绩 · 订正状态：${status0}</div></div>`;
   if(!r.wrong.length){
     html+=`<div class="card" style="text-align:center;padding:40px"><div style="font-size:40px">🎉</div>
@@ -747,7 +846,7 @@ function viewRedo(){
       <div class="card">
         <button class="btn" onclick="go('records')">返回成绩记录</button>
         <button class="btn secondary" onclick="viewExamWrong(${redoSess.examIdx})">回顾本套错题</button>
-        <button class="btn secondary" onclick="startExam()">再考一套</button>
+        <button class="btn secondary" onclick="startExam('rand')">再考一套随机卷</button>
       </div></div>`;
     return;
   }
@@ -1043,7 +1142,7 @@ function exportReportsCSV(){
   let csv='\uFEFF学号,姓名,考试次数,最高分,历次成绩,订正情况,报告导出时间\n';
   list.forEach(r=>{
     const hist=(r.hist||[]).slice().sort((a,b)=>a.ts-b.ts);
-    const scores=hist.map(x=>x.score).join('/')||'—';
+    const scores=hist.map(x=>`${x.mode==='seq'?'顺'+((x.paperNo??0)+1):'随机'}${x.score}`).join('/')||'—';
     const corr=hist.map(x=>(!x.wrong||x.wrong.length===0)?'已订正':`未订正${x.wrong.length}道`).join('；')||'—';
     const times=hist.map(x=>fmtTime(x.ts).slice(0,10)).join('/')||'—';
     csv+=`${r.id},${r.name||''},${hist.length},${hist.length?Math.max(...hist.map(x=>x.score)):'—'},${scores},${corr},${r.exportedAt?new Date(r.exportedAt).toLocaleString('zh-CN'):'—'}\n`;
