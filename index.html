@@ -49,9 +49,15 @@ input:focus,textarea:focus{outline:2px solid #bfdbfe;border-color:var(--primary)
 .q-stem .qtype.choice{background:var(--primary)}
 .q-stem .qtype.judge{background:var(--green)}
 .q-stem .qtype.wrong-tag{background:var(--red)}
-.opt{display:block;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:.1s}
+.opt{display:flex;align-items:center;gap:6px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:.1s}
 .opt:hover{border-color:var(--primary);background:#eff6ff}
-.opt.selected{border-color:var(--primary);background:#dbeafe;font-weight:bold}
+.opt.selected{border-color:var(--primary);background:#dbeafe}
+.opt .txt{flex:1}
+.opt.selected .txt{font-weight:bold}
+.opt-ok{flex-shrink:0;font-size:12px;padding:4px 14px;border-radius:6px;border:1.5px solid var(--border);background:#f8fafc;color:var(--muted);cursor:pointer}
+.opt-ok:hover{border-color:var(--primary);color:var(--primary)}
+.opt.selected .opt-ok{border-color:var(--primary);background:var(--primary);color:#fff}
+.q-item.answered-q .opt-ok{display:none}
 .opt.correct{border-color:var(--green);background:#dcfce7}
 .opt.wrongpick{border-color:var(--red);background:#fee2e2}
 .opt .letter{display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;background:#f1f5f9;border-radius:50%;margin-right:8px;font-size:13px}
@@ -62,8 +68,8 @@ input:focus,textarea:focus{outline:2px solid #bfdbfe;border-color:var(--primary)
 .ac-grid{display:flex;flex-wrap:wrap;gap:4px;max-height:180px;overflow-y:auto;margin:8px 0}
 .ac-btn{width:32px;height:28px;font-size:11px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;color:var(--muted)}
 .ac-btn.answered{background:var(--primary);color:#fff;border-color:var(--primary)}
-.ac-btn.good{background:var(--green);color:#fff;border-color:var(--green)}
-.ac-btn.bad{background:var(--red);color:#fff;border-color:var(--red)}
+.ac-btn.pend{background:#f59e0b;color:#fff;border-color:#f59e0b}
+#acGridWrap{position:fixed;left:50%;bottom:62px;transform:translateX(-50%);width:min(760px,calc(100vw - 24px));max-height:320px;overflow-y:auto;z-index:30;box-shadow:0 -6px 28px rgba(0,0,0,.2)}
 .score-banner{text-align:center;padding:26px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;margin-bottom:16px}
 .score-banner .num{font-size:52px;font-weight:bold}
 .badge{display:inline-block;background:var(--red);color:#fff;border-radius:10px;font-size:12px;padding:0 8px;margin-left:6px}
@@ -325,16 +331,30 @@ function saveExamProgress(){
   const s=getSess();if(!s||!exam)return;
   try{saveExamSess(s.id,{ts:Date.now(),cIds:exam.choice.map(q=>q.id),jIds:exam.judge.map(q=>q.id),ans:exam.ans});}catch(e){}
 }
+const examPending={};   // 暂选未确认的答案 {qid:letter}，点"确定"后才算数
 function pickOpt(qid,letter){
   if(!exam||exam.submitted)return;
-  if(exam.ans[qid])return;              // 已作答的题锁定，不可修改
-  const q=qById(qid);if(!q)return;
-  exam.ans[qid]=letter;
+  if(exam.ans[qid])return;              // 已确认的题锁定，不可修改
+  examPending[qid]=letter;              // 仅选中（可反悔换选），不写入正式答案
   document.querySelectorAll(`[data-qid="${qid}"] .opt`).forEach(el=>{
-    const L=el.dataset.letter;
-    el.classList.remove('selected');
-    if(L===q.ans)el.classList.add('correct');        // 正确答案：绿框
-    else if(L===letter)el.classList.add('wrongpick'); // 答错：红框
+    el.classList.toggle('selected',el.dataset.letter===letter);
+  });
+  updateProgress();
+}
+function confirmOpt(qid,letter){
+  if(!exam||exam.submitted)return;
+  if(exam.ans[qid])return;
+  const q=qById(qid);if(!q)return;
+  delete examPending[qid];
+  exam.ans[qid]=letter;                 // 正式锁定
+  document.querySelectorAll(`[data-qid="${qid}"]`).forEach(box=>{
+    box.classList.add('answered-q');    // 隐藏"确定"按钮
+    box.querySelectorAll('.opt').forEach(el=>{
+      const L=el.dataset.letter;
+      el.classList.remove('selected');
+      if(L===q.ans)el.classList.add('correct');         // 正确答案：绿框
+      else if(L===letter)el.classList.add('wrongpick'); // 答错：红框
+    });
   });
   saveExamProgress();
   updateProgress();
@@ -348,14 +368,19 @@ function updateProgress(){
     [...exam.choice,...exam.judge].forEach(q=>{
       const b=card.querySelector(`[data-ac="${q.id}"]`);
       if(!b)return;
-      const a=exam.ans[q.id];
-      b.classList.toggle('answered',!!a);
-      b.classList.toggle('good',a===q.ans);   // 答题卡：对=绿
-      b.classList.toggle('bad',a!==undefined&&a!==q.ans); // 错=红
+      const a=exam.ans[q.id], p=examPending[q.id];
+      b.classList.toggle('answered',!!a);      // 已确认：蓝底
+      b.classList.toggle('pend',!a&&!!p);      // 已选未确认：橙底
+      if(a)b.classList.remove('pend');
     });
   }
 }
-function jumpTo(qid){const el=document.querySelector(`[data-qid="${qid}"]`);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.style.background='#fef9c3';setTimeout(()=>el.style.background='',1200);}}
+function jumpTo(qid){
+  const g=document.getElementById('acGridWrap');
+  if(g)g.classList.add('hidden');    // 跳转后自动收起题号面板
+  const el=document.querySelector(`[data-qid="${qid}"]`);
+  if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.style.background='#fef9c3';setTimeout(()=>el.style.background='',1200);}
+}
 function toggleCard(){const g=document.getElementById('acGridWrap');g.classList.toggle('hidden');}
 function submitExam(){
   const total=exam.choice.length+exam.judge.length;
@@ -382,22 +407,23 @@ function submitExam(){
 function viewExam(){
   if(!exam)return go('home');
   let html=topbar()+`<div class="container">`;
-  html+=`<div class="card"><h2>📝 模拟考试</h2><div class="muted">共 100 题（单选70 + 判断30），每题 1 分，满分 100 分。每答一题会立即标出对错（<span style="color:var(--green)">绿框=答对</span> / <span style="color:var(--red)">红框=答错</span>，答案已锁定不可改），答题记录实时自动保存，答完点击底部"交卷"。</div></div>`;
+  html+=`<div class="card"><h2>📝 模拟考试</h2><div class="muted">共 100 题（单选70 + 判断30），每题 1 分，满分 100 分。<b>点选项只是选中（可换选），点右侧【确定】才锁定答案</b>并立即标出对错（<span style="color:var(--green)">绿框=答对</span> / <span style="color:var(--red)">红框=答错</span>，锁定后不可改），已锁定的答案实时自动保存，答完点击底部"交卷"。</div></div>`;
   const block=(list,startNo,label,cls)=>{
     let s=`<div class="section-title">${label}</div>`;
     list.forEach((q,i)=>{
       const no=startNo+i,pick=exam.ans[q.id];
-      s+=`<div class="q-item" data-qid="${q.id}">
+      const okBtn=L=>pick===undefined?`<button class="opt-ok" onclick="event.stopPropagation();confirmOpt(${q.id},'${L}')">确定</button>`:'';
+      s+=`<div class="q-item ${pick!==undefined?'answered-q':''}" data-qid="${q.id}">
         <div class="q-stem"><span class="qtype ${cls}">${cls==='choice'?'单选':'判断'}</span><span class="qno">${no}.</span>${esc(q.stem)}</div>`;
       const optCls=L=>pick===undefined?'':(L===q.ans?'correct':(L===pick?'wrongpick':''));
       if(cls==='choice'){
         q.opts.forEach((o,oi)=>{
           const L=LETTERS[oi];
-          s+=`<div class="opt ${optCls(L)}" data-letter="${L}" onclick="pickOpt(${q.id},'${L}')"><span class="letter">${L}</span>${esc(o)}</div>`;
+          s+=`<div class="opt ${optCls(L)}" data-letter="${L}" onclick="pickOpt(${q.id},'${L}')"><span class="letter">${L}</span><span class="txt">${esc(o)}</span>${okBtn(L)}</div>`;
         });
       }else{
         [['A','正确'],['B','错误']].forEach(([L,txt])=>{
-          s+=`<div class="opt ${optCls(L)}" data-letter="${L}" onclick="pickOpt(${q.id},'${L}')"><span class="letter">${L}</span>${txt}</div>`;
+          s+=`<div class="opt ${optCls(L)}" data-letter="${L}" onclick="pickOpt(${q.id},'${L}')"><span class="letter">${L}</span><span class="txt">${txt}</span>${okBtn(L)}</div>`;
         });
       }
       s+=`</div>`;
@@ -407,9 +433,13 @@ function viewExam(){
   html+=`<div class="card">`+block(exam.choice,1,'一、单项选择题（共70题）','choice')+block(exam.judge,71,'二、判断题（共30题）','judge')+`</div>`;
   html+=`<div class="answer-card">
     <div><span class="progress" id="progText"></span>
-      <a class="muted" style="cursor:pointer;margin-left:12px" onclick="toggleCard()">答题卡</a></div>
+      <a class="muted" style="cursor:pointer;margin-left:12px" onclick="toggleCard()">📋 题号预览</a></div>
     <button class="btn" onclick="submitExam()">交 卷</button></div>
-    <div id="acGridWrap" class="hidden card"><div class="ac-grid" id="acGrid">`;
+    <div id="acGridWrap" class="hidden card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:13px"><b>整卷题号</b>　<span style="color:var(--primary)">■</span> 已答　<span style="color:#f59e0b">■</span> 已选未确定　<span style="color:var(--muted)">■</span> 未答　点题号跳转</span>
+        <button class="btn secondary small" onclick="toggleCard()">收起</button>
+      </div><div class="ac-grid" id="acGrid">`;
   [...exam.choice,...exam.judge].forEach((q,i)=>{
     html+=`<button class="ac-btn" data-ac="${q.id}" onclick="jumpTo(${q.id})">${i+1}</button>`;
   });
