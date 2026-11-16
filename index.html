@@ -106,12 +106,28 @@ th{background:#f8fafc}
 </head>
 <body>
 <div id="app"></div>
-<script src="data/questions.js"></script>
+<script src="data/questions.js?v=20261116b"></script>
 <script>
 /* ================= 数据加载（accounts.js 动态加载，绕过缓存） ================= */
 const QBANK = window.QUESTION_BANK || [];
+/* 文本清洗：题库源头（xls）判断题常用一串 &nbsp; 撑空位对齐后面的"( )"，
+   浏览器里直接按文本渲染就会显示成 "&nbsp;&nbsp;..." 这种乱码。
+   这里统一去标签 + 解实体 + 压空白，题干和选项都过一遍，源头再脏也不会显示出来。 */
+const cleanTxt=s=>String(s==null?'':s)
+  .replace(/<[^>]+>/g,'')
+  .replace(/&(nbsp|ensp|emsp|thinsp);/gi,' ')
+  .replace(/&#(\d+);/g,(m,d)=>String.fromCharCode(+d))
+  .replace(/&#x([0-9a-fA-F]+);/gi,(m,h)=>String.fromCharCode(parseInt(h,16)))
+  .replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&quot;/gi,'"')
+  .replace(/&#39;|&apos;/gi,"'").replace(/&amp;/g,'&')
+  .replace(/\s+/g,' ')
+  .replace(/\s+([，。；：、？！,.;:!?])/g,'$1')
+  .replace(/\s+([（(])/g,'$1')
+  .trim();
 // 归一化题干（去 HTML 标签、全角转半角、去空白），用于同题判重（题库中存在仅标点不同的重复题）
 QBANK.forEach(q=>{
+  q.stem=cleanTxt(q.stem);
+  q.opts=(q.opts||[]).map(cleanTxt);
   q.ns=(q.stem||'').replace(/<[^>]+>/g,'')
     .replace(/[\uFF01-\uFF5E]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
     .replace(/\s+/g,'');
