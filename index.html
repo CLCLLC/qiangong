@@ -835,118 +835,102 @@ function viewExamWrong(idx){
   $app.innerHTML=html;
 }
 
-/* ---------- 重做某套试卷的错题（订正：整卷轮次制） ----------
-   规则：每轮生成一份订正卷，全部未掌握错题打乱后排在一页里上下作答（每题 1 遍）；
-   一道题连续 2 轮都答对 => 掌握，从本套错题移除；任何一轮答错 => 进入下一轮，直至全部掌握通关。
-   订正进度实时保存，闪退/关网页后可从"重做错题"继续。 */
+/* ---------- 重做某套试卷的错题（订正：整卷制，沿用原"每题出2遍"规则） ----------
+   规则：本套所有未掌握错题生成一份订正卷，每道错题出 2 遍（打乱排开、同一题的两遍不相邻），
+   整页上下作答；交卷后一道题 2 遍全答对 => 掌握，从本套错题移除；有答错 => 保留，
+   可再次点"重做错题"重新生成订正卷。订正进度实时保存，闪退后可继续。 */
 let redoSess=null;
+function buildRedoItems(ids){
+  // 每道题 2 份，打乱后保证同一题的两份不相邻
+  const arr=shuffle(ids.concat(ids));
+  for(let i=1;i<arr.length;i++){
+    if(arr[i]===arr[i-1]){
+      for(let j=0;j<arr.length;j++){
+        if(j>0&&arr[j]!==arr[i]&&arr[j]!==arr[j-1]&&(j+1>=arr.length||arr[j+1]!==arr[i])&&(i+1>=arr.length||arr[i+1]!==arr[j])){
+          const t=arr[i];arr[i]=arr[j];arr[j]=t;break;
+        }
+      }
+    }
+  }
+  return arr;
+}
 function startRedo(idx){
   const s=getSess();const h=getHist(s.id);const r=h[idx];
   if(!r)return go('records');
   const saved=getRedoSess(s.id);
   if(saved&&saved.examIdx===idx&&saved.items&&saved.items.length){
-    if(confirm(`检测到上次未完成的订正进度（第 ${saved.round} 轮还剩 ${saved.items.length} 题）。\n\n点"确定"继续，点"取消"放弃并重新开始。`)){
+    const un=saved.items.length-Object.keys(saved.ans||{}).length;
+    if(confirm(`检测到上次未完成的订正进度（本卷还剩 ${un} 题未作答）。\n\n点"确定"继续，点"取消"放弃并重新开始。`)){
       redoSess=saved;state.view='redo';window.scrollTo(0,0);render();return;
     }
     clearRedoSess(s.id);
   }
   const ids=r.wrong.slice().filter(id=>qById(id));
   if(!ids.length){alert('本套试卷的错题已全部订正完成！');return;}
-  if(!confirm(`订正规则：\n1. 本套共 ${ids.length} 道错题，生成一份订正卷：全部题目打乱后排在同一页，上下翻动作答\n2. 每轮答完点底部"交卷"，一道题连续 2 轮都答对 => 掌握，自动从本套错题移除\n3. 任何一轮答错 => 该题进入下一轮订正卷\n4. 全部掌握后本套试卷即通关（已订正 ✅）\n\n开始订正吗？`))return;
-  redoSess={examIdx:idx,total:ids.length,mastered:0,round:1,roundQids:ids,res:{},items:shuffle(ids.slice()),ans:{},pend:{},fb:'',roundMsg:false};
+  if(!confirm(`订正规则：\n1. 本套共 ${ids.length} 道错题，生成一份订正卷：每道错题出 2 遍（打乱排开，共 ${ids.length*2} 题），整页上下翻动作答\n2. 交卷后一道题 2 遍全答对 => 掌握，自动从本套错题移除\n3. 有答错的题 => 保留在本套错题里，可再次"重做错题"继续订正\n\n开始订正吗？`))return;
+  redoSess={examIdx:idx,total:ids.length,items:buildRedoItems(ids),ans:{},pend:{}};
   saveRedoSess(s.id,redoSess);
   state.view='redo';window.scrollTo(0,0);render();
 }
 function viewRedo(){
   if(!redoSess)return go('records');
   const s=getSess();
-  if(!redoSess.items.length){
-    // 通关：写订正完成时间
-    const h=getHist(s.id);const rec=h[redoSess.examIdx];
-    if(rec&&!rec.correctedAt){rec.correctedAt=Date.now();saveHist(s.id,h);}
-    clearRedoSess(s.id);
-    $app.innerHTML=topbar()+`<div class="container">
-      <div class="score-banner"><div>🎉</div><div class="num">通关！</div>
-      <div>经过 ${redoSess.round} 轮订正，本套试卷共 ${redoSess.total} 道错题已全部掌握，订正完成 ✅</div></div>
-      <div class="card">
-        <button class="btn" onclick="go('records')">返回成绩记录</button>
-        <button class="btn secondary" onclick="viewExamWrong(${redoSess.examIdx})">回顾本套错题</button>
-        <button class="btn secondary" onclick="startExam((getHist(getSess().id)[redoSess.examIdx]||{}).mode==='rand200'?'rand200':'rand')">再考一套随机卷</button>
-      </div></div>`;
-    return;
-  }
-  if(redoSess.roundMsg){
-    $app.innerHTML=topbar()+`<div class="container">
-      <div class="score-banner"><div>📢 订正进度</div><div class="num">已掌握 ${redoSess.mastered} / ${redoSess.total}</div>
-      <div>${esc(redoSess.fb)}</div></div>
-      <div class="card" style="text-align:center;padding:30px">
-        <div style="font-size:40px;margin-bottom:10px">🔁</div>
-        <h2>第 ${redoSess.round} 轮订正卷</h2>
-        <p class="muted">剩余 ${redoSess.items.length} 道未掌握，题目已重新打乱<br>连续 2 轮答对即掌握，全部掌握即通关</p>
-        <button class="btn" onclick="redoRoundGo()">▶ 开始第 ${redoSess.round} 轮</button>
-      </div>
-      <div class="card"><button class="btn secondary" onclick="quitRedo()">保存进度并退出</button></div>
-    </div>`;
-    return;
-  }
-  const remain=redoSess.total-redoSess.mastered;
+  const N=redoSess.items.length;          // 2×错题数
+  const ansN=Object.keys(redoSess.ans).length;
   let html=topbar()+`<div class="container">
     <div class="practice-bar">
-      <b>✏️ 订正错题（第 ${redoSess.round} 轮）｜ 已掌握 ${redoSess.mastered} / ${redoSess.total}</b>
-      <span class="muted">剩余 <b style="color:var(--orange)">${remain}</b> 道未掌握 · 本轮 ${redoSess.items.length} 题，答完点底部"交卷"</span>
+      <b>✏️ 订正错题 ｜ 本套共 ${redoSess.total} 道错题 × 2 遍 = ${N} 题</b>
+      <span class="muted">已答 <b>${ansN}</b> / ${N}</span>
       <a class="muted" style="cursor:pointer;margin-left:10px" onclick="quitRedo()">保存进度并退出</a>
     </div>
-    <div class="card"><div class="muted">整卷上下作答：<b>点选项只是选中（可换选），点右侧【确定】才锁定答案</b>并立即标出对错（<span style="color:var(--green)">绿框=答对</span> / <span style="color:var(--red)">红框=答错</span>，锁定后不可改），作答进度实时自动保存。</div></div>`;
-  const block=(list,startNo)=>{
-    let out='';
-    list.forEach((qid,i)=>{
-      const q=qById(qid);if(!q)return;
-      const no=startNo+i,pick=redoSess.ans[qid],pend=redoSess.pend[qid],cls=q.type==='choice'?'choice':'judge';
-      const okBtn=L=>pick===undefined?`<button class="opt-ok" onclick="event.stopPropagation();confirmRedoOpt(${qid},'${L}')">确定</button>`:'';
-      const optCls=L=>pick===undefined?(pend===L?'selected':''):(L===q.ans?'correct':(L===pick?'wrongpick':''));
-      out+=`<div class="q-item ${pick!==undefined?'answered-q':''}" data-qid="${qid}">
-        <div class="q-stem"><span class="qtype ${cls}">${cls==='choice'?'单选':'判断'}</span><span class="qno">${no}.</span>${esc(q.stem)}</div>`;
-      const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
-      opts.forEach(([L,txt])=>{
-        out+=`<div class="opt ${optCls(L)}" data-letter="${L}" ${pick===undefined?`onclick="pickRedoOpt(${qid},'${L}')"`:''}><span class="letter">${L}</span><span class="txt">${esc(txt)}</span>${okBtn(L)}</div>`;
-      });
-      out+=`</div>`;
+    <div class="card"><div class="muted">规则：每道错题连出 2 遍，<b>点选项只是选中（可换选），点右侧【确定】才锁定答案</b>并立即标出对错（<span style="color:var(--green)">绿框=答对</span> / <span style="color:var(--red)">红框=答错</span>，锁定后不可改）。交卷后一道题 2 遍全对 => 掌握移出错题清单。作答进度实时自动保存。</div></div>`;
+  let out='';
+  redoSess.items.forEach((qid,i)=>{
+    const q=qById(qid);if(!q)return;
+    const pick=redoSess.ans[i],pend=redoSess.pend[i],cls=q.type==='choice'?'choice':'judge';
+    const okBtn=L=>pick===undefined?`<button class="opt-ok" onclick="event.stopPropagation();confirmRedoOpt(${i},${qid},'${L}')">确定</button>`:'';
+    const optCls=L=>pick===undefined?(pend===L?'selected':''):(L===q.ans?'correct':(L===pick?'wrongpick':''));
+    out+=`<div class="q-item ${pick!==undefined?'answered-q':''}" data-pos="${i}">
+      <div class="q-stem"><span class="qtype ${cls}">${cls==='choice'?'单选':'判断'}</span><span class="qno">${i+1}.</span>${esc(q.stem)}</div>`;
+    const opts=q.type==='choice'?q.opts.map((o,oi)=>[LETTERS[oi],o]):[['A','正确'],['B','错误']];
+    opts.forEach(([L,txt])=>{
+      out+=`<div class="opt ${optCls(L)}" data-letter="${L}" ${pick===undefined?`onclick="pickRedoOpt(${i},${qid},'${L}')"`:''}><span class="letter">${L}</span><span class="txt">${esc(txt)}</span>${okBtn(L)}</div>`;
     });
-    return out;
-  };
-  html+=`<div class="card">`+block(redoSess.items,0)+`</div>`;
+    out+=`</div>`;
+  });
+  html+=`<div class="card">`+out+`</div>`;
   html+=`<div class="answer-card">
     <div><span class="progress" id="progText"></span>
       <a class="muted" style="cursor:pointer;margin-left:12px" onclick="toggleRedoCard()">📋 题号预览</a></div>
-    <button class="btn" onclick="submitRedoRound()">交 卷（本轮）</button></div>
+    <button class="btn" onclick="submitRedo()">交 卷</button></div>
     <div id="acGridWrap" class="hidden card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:13px"><b>整卷题号</b>　<span style="color:var(--primary)">■</span> 已答　<span style="color:#f59e0b">■</span> 已选未确定　<span style="color:var(--muted)">■</span> 未答　点题号跳转</span>
         <button class="btn secondary small" onclick="toggleRedoCard()">收起</button>
       </div><div class="ac-grid" id="acGrid">`;
   redoSess.items.forEach((qid,i)=>{
-    html+=`<button class="ac-btn" data-ac="${qid}" onclick="jumpTo(${qid})">${i+1}</button>`;
+    html+=`<button class="ac-btn" data-acp="${i}" onclick="jumpRedoTo(${i})">${i+1}</button>`;
   });
   html+=`</div></div></div>`;
   $app.innerHTML=html;
   updateRedoProgress();
 }
-function pickRedoOpt(qid,letter){
+function pickRedoOpt(pos,qid,letter){
   if(!redoSess)return;
-  if(redoSess.ans[qid])return;
-  redoSess.pend[qid]=letter;
-  document.querySelectorAll(`[data-qid="${qid}"] .opt`).forEach(el=>{
+  if(redoSess.ans[pos]!==undefined)return;
+  redoSess.pend[pos]=letter;
+  document.querySelectorAll(`[data-pos="${pos}"] .opt`).forEach(el=>{
     el.classList.toggle('selected',el.dataset.letter===letter);
   });
   updateRedoProgress();
 }
-function confirmRedoOpt(qid,letter){
+function confirmRedoOpt(pos,qid,letter){
   if(!redoSess)return;
-  if(redoSess.ans[qid])return;
+  if(redoSess.ans[pos]!==undefined)return;
   const q=qById(qid);if(!q)return;
-  delete redoSess.pend[qid];
-  redoSess.ans[qid]=letter;
-  document.querySelectorAll(`[data-qid="${qid}"]`).forEach(box=>{
+  delete redoSess.pend[pos];
+  redoSess.ans[pos]=letter;
+  document.querySelectorAll(`[data-pos="${pos}"]`).forEach(box=>{
     box.classList.add('answered-q');
     box.querySelectorAll('.opt').forEach(el=>{
       const L=el.dataset.letter;
@@ -964,52 +948,62 @@ function updateRedoProgress(){
   if(el)el.textContent=`已答 ${Object.keys(redoSess.ans).length} / ${redoSess.items.length}`;
   const card=document.getElementById('acGrid');
   if(card){
-    redoSess.items.forEach(qid=>{
-      const b=card.querySelector(`[data-ac="${qid}"]`);if(!b)return;
-      const a=redoSess.ans[qid],p=redoSess.pend[qid];
+    redoSess.items.forEach((qid,i)=>{
+      const b=card.querySelector(`[data-acp="${i}"]`);if(!b)return;
+      const a=redoSess.ans[i]!==undefined,p=redoSess.pend[i];
       b.classList.toggle('answered',!!a);
       b.classList.toggle('pend',!a&&!!p);
-      if(a)b.classList.remove('pend');
     });
   }
 }
-function submitRedoRound(){
+function jumpRedoTo(i){
+  const el=document.querySelector(`[data-pos="${i}"]`);
+  if(el){el.scrollIntoView({behavior:'smooth',block:'center'});}
+  const g=document.getElementById('acGridWrap');
+  if(g)g.classList.add('hidden');
+}
+function submitRedo(){
   if(!redoSess)return;
   const s=getSess();
   const total=redoSess.items.length;
   const un=total-Object.keys(redoSess.ans).length;
-  if(un>0&&!confirm(`本轮还有 ${un} 题未作答，确定交卷吗？`))return;
+  if(un>0&&!confirm(`还有 ${un} 题未作答，确定交卷吗？`))return;
   if(!confirm('确认交卷？'))return;
   const h=getHist(s.id);const rec=h[redoSess.examIdx];
-  let rightN=0;const just=[];const failed=[];
-  redoSess.items.forEach(qid=>{
+  // 统计每道错题 2 遍的答对次数
+  const cnt={};
+  redoSess.items.forEach((qid,i)=>{
     const q=qById(qid);if(!q)return;
-    const ok=redoSess.ans[qid]===q.ans;
-    const st=redoSess.res[qid]||(redoSess.res[qid]={c:0});
-    if(ok){rightN++;st.c=(st.c||0)+1;}else st.c=0;    // 连续 2 轮答对才算掌握，答错重新计数
-    if(st.c>=2){
-      just.push(qid);
-      if(rec)rec.wrong=rec.wrong.filter(x=>x!==qid);  // 掌握：从本套错题清单移除
-      redoSess.mastered++;
-    }else failed.push(qid);
+    if(redoSess.ans[i]===q.ans)cnt[qid]=(cnt[qid]||0)+1;
   });
+  const masteredIds=[],failedIds=[];
+  const uniq=[...new Set(redoSess.items)];
+  uniq.forEach(qid=>{
+    if((cnt[qid]||0)>=2)masteredIds.push(qid);else failedIds.push(qid);
+  });
+  // 掌握：从本套错题移除；未掌握：保留并计入错题本错误次数
+  if(rec)rec.wrong=rec.wrong.filter(x=>!masteredIds.includes(x));
+  if(failedIds.length){const w=getWrong(s.id);failedIds.forEach(qid=>{w[qid]=(w[qid]||0)+1;});saveWrong(s.id,w);}
+  if(rec&&rec.wrong.length===0&&!rec.correctedAt)rec.correctedAt=Date.now();
   saveHist(s.id,h);
-  // 未掌握的题在错题本大池子累计错误次数（与原规则一致）
-  if(failed.length){const w=getWrong(s.id);failed.forEach(qid=>{w[qid]=(w[qid]||0)+1;});saveWrong(s.id,w);}
-  redoSess.fb=`第 ${redoSess.round} 轮结果：答对 ${rightN} / ${total} 题，本轮新掌握 ${just.length} 题，剩余 ${failed.length} 题进入下一轮`;
-  if(!failed.length){redoSess.items=[];state.view='redo';window.scrollTo(0,0);render();return;}
-  redoSess.round++;redoSess.roundQids=failed;redoSess.items=shuffle(failed.slice());
-  redoSess.ans={};redoSess.pend={};redoSess.roundMsg=true;
-  saveRedoSess(s.id,redoSess);
-  state.view='redo';window.scrollTo(0,0);render();
+  clearRedoSess(s.id);
+  const rightCopies=Object.values(cnt).reduce((a,b)=>a+b,0);
+  $app.innerHTML=topbar()+`<div class="container">
+    <div class="score-banner"><div>📢 订正结果</div><div class="num">掌握 ${masteredIds.length} / ${uniq.length}</div>
+    <div>本卷 ${total} 题（${uniq.length} 道错题各 2 遍），答对 ${rightCopies} 遍 ·
+    ${failedIds.length?`<span style="color:var(--red)">❌ ${failedIds.length} 道题未两遍全对，仍保留在本套错题里，可再次订正</span>`:'<span style="color:var(--green)">✅ 全部掌握，本套试卷订正完成！</span>'}</div></div>
+    <div class="card">
+      ${failedIds.length?`<button class="btn" onclick="startRedo(${redoSess.examIdx})">🔁 再次订正剩余错题（${failedIds.length} 道）</button>`:''}
+      <button class="btn secondary" onclick="go('records')">返回成绩记录</button>
+      <button class="btn secondary" onclick="viewExamWrong(${redoSess.examIdx})">回顾本套错题</button>
+      <button class="btn secondary" onclick="go('home')">返回首页</button>
+    </div></div>`;
+  redoSess=null;
+  window.scrollTo(0,0);
 }
 function toggleRedoCard(){const g=document.getElementById('acGridWrap');if(g)g.classList.toggle('hidden');}
-function redoRoundGo(){
-  redoSess.roundMsg=false;
-  window.scrollTo(0,0);render();
-}
 function quitRedo(){
-  if(!confirm('确定退出订正吗？\n本轮作答进度已保存，下次点"重做错题"可继续；已掌握的题已从本套错题移除。'))return;
+  if(!confirm('确定退出订正吗？\n本卷作答进度已保存，下次点"重做错题"可继续。'))return;
   saveRedoSess(getSess().id,redoSess);
   redoSess=null;go('records');
 }
