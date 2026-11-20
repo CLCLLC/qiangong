@@ -106,7 +106,7 @@ th{background:#f8fafc}
 </head>
 <body>
 <div id="app"></div>
-<script src="data/questions.js?v=20261116b"></script>
+<script src="data/questions.js?v=20261120a"></script>
 <script>
 /* ================= 数据加载（accounts.js 动态加载，绕过缓存） ================= */
 const QBANK = window.QUESTION_BANK || [];
@@ -679,8 +679,36 @@ function viewWrong(){
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button class="btn danger" onclick="clearWrongBook()" ${entries.length?'':'disabled style="opacity:.4;cursor:not-allowed"'}>🗑 清空我的错题本（${entries.length}道）</button>
       <span class="muted">清空后无法恢复，建议先"备份/恢复数据"导出留底；不影响考试成绩记录</span>
-    </div></div>
-    <div class="warn-box">💡 说明：错题本只收录<b>订正重做时未通过</b>的错题（考试第一次答错的题需先到"成绩记录"里"重做错题"订正，订正没通过的才会进到这里）。题目在这里会一直保留，自己确认已掌握后可以点"从错题本删除"手动剔除。</div>
+    </div></div>`;
+  /* 错题试卷记录：放在页面顶部，不用翻完错题列表 */
+  const wp=getWp(s.id).slice().reverse();
+  const WP_PREVIEW=5;
+  const wpShown=wpExpanded?wp:wp.slice(0,WP_PREVIEW);
+  html+=`<div class="card"><h2>📚 错题试卷记录${wp.length?`（共 ${wp.length} 条）`:''}</h2><div class="muted">每次刷"错题试卷"都会存一条做题记录；答错进错题次数累计。点"重做错题"可对那次卷子里的错题进行订正（每题出 2 遍，两遍全对才算掌握）。</div>`;
+  if(!wp.length){
+    html+=`<div class="muted" style="padding:16px 0;text-align:center">还没有错题试卷记录：点下方"生成错题试卷"刷一套即可生成。</div>`;
+  }else{
+    html+=`<table style="margin-top:10px"><tr><th>时间</th><th>范围</th><th>得分</th><th>订正状态</th><th>操作</th></tr>`;
+    wpShown.forEach((r,i)=>{
+      const recIdx=wp.length-1-i;
+      const done=r.wrong.length===0;
+      const status=done?'<span style="color:var(--green)">✅ 已全部订正</span>':`<span style="color:var(--red)">❌ 未订正 ${r.wrong.length} 道</span>`;
+      html+=`<tr><td>${fmtTime(r.ts)}</td><td>${{high:'高频错题',low:'低频错题',all:'全部错题'}[r.filter]||'全部错题'}</td>
+        <td><b style="color:${r.score>=(r.size||1)/2?'var(--green)':'var(--red)'}">${r.score}</b> / ${r.size||r.cIds.length+r.jIds.length} 分</td>
+        <td>${status}</td>
+        <td style="white-space:nowrap">
+          ${done?'':`<button class="btn small" onclick="startRedo('wp',${recIdx})">重做错题</button>`}
+          <button class="btn secondary small" onclick="viewExamWrong(${recIdx},'wp')">本套错题</button>
+          <button class="btn secondary small" onclick="reviewOld(${recIdx},'wp')">查看试卷</button>
+        </td></tr>`;
+    });
+    html+=`</table>`;
+    if(wp.length>WP_PREVIEW){
+      html+=`<div style="margin-top:10px;text-align:center"><button class="btn secondary small" onclick="wpExpanded=!wpExpanded;render()">${wpExpanded?'▲ 收起，只看最近 '+WP_PREVIEW+' 条':'▼ 展开全部 '+wp.length+' 条记录'}</button></div>`;
+    }
+  }
+  html+=`</div>`;
+  html+=`<div class="warn-box">💡 说明：错题本只收录<b>订正重做时未通过</b>的错题（考试第一次答错的题需先到"成绩记录"里"重做错题"订正，订正没通过的才会进到这里）。题目在这里会一直保留，自己确认已掌握后可以点"从错题本删除"手动剔除。</div>
     <div class="card">
       <div class="tabs">
         <button class="tab ${wrongFilter==='all'?'active':''}" onclick="setWF('all')">全部（${entries.length}）</button>
@@ -701,32 +729,10 @@ function viewWrong(){
     });
     html+=`<div class="muted">正确答案：${q.ans} <button class="btn danger small" style="float:right" onclick="delWrong(${q.id})">从错题本删除</button></div></div>`;
   });
-  html+=`</div>`;
-  /* 错题试卷记录：每次生成错题卷刷题都会存一条，可订正、可回看 */
-  const wp=getWp(s.id).slice().reverse();
-  html+=`<div class="card"><h2>📚 错题试卷记录</h2><div class="muted">每次刷"错题试卷"都会存一条做题记录；答错进错题次数累计。点"重做错题"可对那次卷子里的错题进行订正（每题出 2 遍，两遍全对才算掌握）。</div>`;
-  if(!wp.length){
-    html+=`<div class="muted" style="padding:16px 0;text-align:center">还没有错题试卷记录：点上方"生成错题试卷"刷一套即可生成。</div>`;
-  }else{
-    html+=`<table style="margin-top:10px"><tr><th>时间</th><th>范围</th><th>得分</th><th>订正状态</th><th>操作</th></tr>`;
-    wp.forEach((r,i)=>{
-      const recIdx=wp.length-1-i;
-      const done=r.wrong.length===0;
-      const status=done?'<span style="color:var(--green)">✅ 已全部订正</span>':`<span style="color:var(--red)">❌ 未订正 ${r.wrong.length} 道</span>`;
-      html+=`<tr><td>${fmtTime(r.ts)}</td><td>${{high:'高频错题',low:'低频错题',all:'全部错题'}[r.filter]||'全部错题'}</td>
-        <td><b style="color:${r.score>=(r.size||1)/2?'var(--green)':'var(--red)'}">${r.score}</b> / ${r.size||r.cIds.length+r.jIds.length} 分</td>
-        <td>${status}</td>
-        <td style="white-space:nowrap">
-          ${done?'':`<button class="btn small" onclick="startRedo('wp',${recIdx})">重做错题</button>`}
-          <button class="btn secondary small" onclick="viewExamWrong(${recIdx},'wp')">本套错题</button>
-          <button class="btn secondary small" onclick="reviewOld(${recIdx},'wp')">查看试卷</button>
-        </td></tr>`;
-    });
-    html+=`</table>`;
-  }
   html+=`</div></div>`;
   $app.innerHTML=html;
 }
+let wpExpanded=false;
 function setWF(f){wrongFilter=f;render();}
 function delWrong(qid){
   const s=getSess();
