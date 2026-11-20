@@ -165,7 +165,8 @@ const K={
   wrong:id=>`qz_wrong_${id}`,    // 错题本 {qid:count}
   ex:id=>`qz_examsess_${id}`,     // 未交卷的答题进度（防闪退丢失）
   redo:id=>`qz_redosess_${id}`,  // 订正进度（防闪退丢失）
-  bankver:id=>`qz_bankver_${id}` // 题库版本号（换题库后自动重置该生记录）
+  bankver:id=>`qz_bankver_${id}`, // 题库版本号（换题库后自动重置该生记录）
+  wpp:id=>`qz_wprecords_${id}`   // 错题专项卷做题记录（错题本界面展示，可订正）
 };
 /* 题库版本检测：题库更换后旧记录里的题号对不上新题库，自动清空该生考试记录/错题本 */
 const BANK_VER='v2_1196_20261116';
@@ -174,6 +175,7 @@ function ensureBankVer(sid){
   if(v===BANK_VER)return;
   const hadHist=getHist(sid).length, hadWrong=Object.keys(getWrong(sid)).length;
   saveHist(sid,[]);saveWrong(sid,{});clearExamSess(sid);clearRedoSess(sid);
+  localStorage.removeItem(K.wpp(sid));
   localStorage.setItem(K.bankver(sid),BANK_VER);
   if(hadHist||hadWrong)alert('题库已更换为新版总题库（共1196题），你的历史考试记录与错题本已重置，请重新开始刷题。');
 }
@@ -189,6 +191,14 @@ const clearExamSess=sid=>localStorage.removeItem(K.ex(sid));
 const getRedoSess=sid=>{try{return JSON.parse(localStorage.getItem(K.redo(sid))||'null');}catch(e){return null;}};
 const saveRedoSess=(sid,d)=>{try{localStorage.setItem(K.redo(sid),JSON.stringify(d));}catch(e){}};
 const clearRedoSess=sid=>localStorage.removeItem(K.redo(sid));
+/* 错题专项卷做题记录（独立于考试成绩记录） */
+const getWp=sid=>JSON.parse(localStorage.getItem(K.wpp(sid))||'[]');
+const saveWp=(sid,a)=>localStorage.setItem(K.wpp(sid),JSON.stringify(a));
+/* 记录读写助手：src='hist'=考试成绩记录  'wp'=错题试卷记录 */
+function recAt(src,idx){const s=getSess();return src==='wp'?getWp(s.id)[idx]:getHist(s.id)[idx];}
+function saveRecAt(src,idx,rec){const s=getSess();
+  if(src==='wp'){const a=getWp(s.id);a[idx]=rec;saveWp(s.id,a);}
+  else{const a=getHist(s.id);a[idx]=rec;saveHist(s.id,a);}}
 /* 当前用户数据占用（KB），用于提示用户是否需要清理 */
 function storageKB(){
   try{
@@ -534,7 +544,12 @@ function submitExam(){
   });
   const score=Math.round((total-wrongIds.length)*exam.pts*10)/10;   // 随机卷每题1分；顺序卷每题0.5分
   if(exam.mode==='wrongpaper'){
-    // 错题专项卷：不写入考试成绩记录（可反复刷），直接出分
+    // 错题专项卷：写入"错题试卷记录"（错题本界面展示，可订正），不占考试成绩记录
+    const wp=getWp(s.id);
+    wp.push({ts:Date.now(),score:rightN,mode:'wrongpaper',filter:exam.filter||'all',pts:1,size:total,
+             cIds:exam.choice.map(q=>q.id),jIds:exam.judge.map(q=>q.id),ans:{...exam.ans},wrong:wrongIds});
+    if(wp.length>50)wp.splice(0,wp.length-50);
+    saveWp(s.id,wp);
     exam.score=rightN;exam.wrongIds=wrongIds;
     clearExamSess(s.id);
     state.view='review';window.scrollTo(0,0);render();return;
@@ -686,6 +701,29 @@ function viewWrong(){
     });
     html+=`<div class="muted">正确答案：${q.ans} <button class="btn danger small" style="float:right" onclick="delWrong(${q.id})">从错题本删除</button></div></div>`;
   });
+  html+=`</div>`;
+  /* 错题试卷记录：每次生成错题卷刷题都会存一条，可订正、可回看 */
+  const wp=getWp(s.id).slice().reverse();
+  html+=`<div class="card"><h2>📚 错题试卷记录</h2><div class="muted">每次刷"错题试卷"都会存一条做题记录；答错进错题次数累计。点"重做错题"可对那次卷子里的错题进行订正（每题出 2 遍，两遍全对才算掌握）。</div>`;
+  if(!wp.length){
+    html+=`<div class="muted" style="padding:16px 0;text-align:center">还没有错题试卷记录：点上方"生成错题试卷"刷一套即可生成。</div>`;
+  }else{
+    html+=`<table style="margin-top:10px"><tr><th>时间</th><th>范围</th><th>得分</th><th>订正状态</th><th>操作</th></tr>`;
+    wp.forEach((r,i)=>{
+      const recIdx=wp.length-1-i;
+      const done=r.wrong.length===0;
+      const status=done?'<span style="color:var(--green)">✅ 已全部订正</span>':`<span style="color:var(--red)">❌ 未订正 ${r.wrong.length} 道</span>`;
+      html+=`<tr><td>${fmtTime(r.ts)}</td><td>${{high:'高频错题',low:'低频错题',all:'全部错题'}[r.filter]||'全部错题'}</td>
+        <td><b style="color:${r.score>=(r.size||1)/2?'var(--green)':'var(--red)'}">${r.score}</b> / ${r.size||r.cIds.length+r.jIds.length} 分</td>
+        <td>${status}</td>
+        <td style="white-space:nowrap">
+          ${done?'':`<button class="btn small" onclick="startRedo('wp',${recIdx})">重做错题</button>`}
+          <button class="btn secondary small" onclick="viewExamWrong(${recIdx},'wp')">本套错题</button>
+          <button class="btn secondary small" onclick="reviewOld(${recIdx},'wp')">查看试卷</button>
+        </td></tr>`;
+    });
+    html+=`</table>`;
+  }
   html+=`</div></div>`;
   $app.innerHTML=html;
 }
@@ -760,9 +798,9 @@ function viewRecords(){
       html+=`<tr><td>${fmtTime(r.ts)}</td><td>${paperLabel(r)}</td><td>${esc(s.name||s.id)}</td><td><b style="color:${r.score>=60?'var(--green)':'var(--red)'}">${r.score}</b></td>
         <td>${status}</td>
         <td style="white-space:nowrap">
-          <button class="btn secondary small" onclick="viewExamWrong(${recIdx})">本套错题</button>
-          ${done?'':`<button class="btn small" onclick="startRedo(${recIdx})">重做错题</button>`}
-          <button class="btn secondary small" onclick="reviewOld(${recIdx})">查看试卷</button>
+          <button class="btn secondary small" onclick="viewExamWrong(${recIdx},'hist')">本套错题</button>
+          ${done?'':`<button class="btn small" onclick="startRedo('hist',${recIdx})">重做错题</button>`}
+          <button class="btn secondary small" onclick="reviewOld(${recIdx},'hist')">查看试卷</button>
         </td></tr>`;
     });
     html+=`</table>`;
@@ -770,14 +808,15 @@ function viewRecords(){
   html+=`</div></div>`;
   $app.innerHTML=html;
 }
-/* 记录的卷别标签：随机卷 / 随机200题 / 顺序卷N（兼容旧记录：无 mode 字段视为随机卷） */
+/* 记录的卷别标签：随机卷 / 随机200题 / 顺序卷N / 错题卷（兼容旧记录：无 mode 字段视为随机卷） */
 function paperLabel(r){
   if(r&&r.mode==='seq')return `顺序卷${(r.paperNo??0)+1}`;
   if(r&&r.mode==='rand200')return '随机200题';
+  if(r&&r.mode==='wrongpaper')return `错题卷（${{high:'高频',low:'低频',all:'全部'}[r.filter]||'全部'}错题）`;
   return '随机卷';
 }
-function reviewOld(idx){  const s=getSess();const r=getHist(s.id)[idx];
-  exam={mode:r.mode||'rand',paperNo:r.paperNo??null,pts:r.pts||1,
+function reviewOld(idx,src){  const s=getSess();const r=recAt(src||'hist',idx);if(!r)return go(src==='wp'?'wrong':'records');
+  exam={mode:r.mode||'rand',paperNo:r.paperNo??null,pts:r.pts||1,filter:r.filter,
         choice:r.cIds.map(qById).filter(Boolean),judge:r.jIds.map(qById).filter(Boolean),ans:r.ans,score:r.score,wrongIds:r.wrong,submitted:true};
   // 查看旧试卷时不再重复加分/记错题，只展示
   state.view='review';window.scrollTo(0,0);render();
@@ -796,10 +835,11 @@ function clearRecords(){
   alert(`已清空 ${n} 条考试成绩记录`);
 }
 
-/* ---------- 查看某套试卷的错题 ---------- */
-function viewExamWrong(idx){
-  const s=getSess();const r=getHist(s.id)[idx];
-  if(!r)return go('records');
+/* ---------- 查看某套试卷的错题（src='hist'考试成绩记录 / 'wp'错题试卷记录） ---------- */
+function viewExamWrong(idx,src){
+  src=src||'hist';
+  const s=getSess();const r=recAt(src,idx);
+  if(!r)return go(src==='wp'?'wrong':'records');
   const w=getWrong(s.id);
   const done0=r.wrong.length===0;
   const status0=done0?'<span style="color:var(--green)">✅ 已全部订正</span>':'<span style="color:var(--red)">❌ 未订正</span>';
@@ -810,7 +850,7 @@ function viewExamWrong(idx){
     html+=`<div class="card" style="text-align:center;padding:40px"><div style="font-size:40px">🎉</div>
       <h2>本套错题已全部订正掌握！</h2></div>`;
   }else{
-    html+=`<div class="card"><button class="btn" onclick="startRedo(${idx})">▶ 重做此套错题（${r.wrong.length} 道）</button>
+    html+=`<div class="card"><button class="btn" onclick="startRedo('${src}',${idx})">▶ 重做此套错题（${r.wrong.length} 道）</button>
       <span class="muted" style="margin-left:10px">每题打乱后出 2 遍，两遍都对才算掌握；有答错的题进入下一轮重新出 2 遍，直至全部掌握</span></div>
       <div class="card"><h2>本套错题及正确答案（${r.wrong.length} 道）</h2>`;
     r.wrong.forEach((qid,n)=>{
@@ -831,7 +871,7 @@ function viewExamWrong(idx){
     });
     html+=`</div>`;
   }
-  html+=`<div class="card"><button class="btn secondary" onclick="go('records')">← 返回成绩记录</button></div>`;
+  html+=`<div class="card"><button class="btn secondary" onclick="go('${src==='wp'?'wrong':'records'}')">← 返回${src==='wp'?'错题本':'成绩记录'}</button></div>`;
   $app.innerHTML=html;
 }
 
@@ -854,21 +894,22 @@ function buildRedoItems(ids){
   }
   return arr;
 }
-function startRedo(idx){
-  const s=getSess();const h=getHist(s.id);const r=h[idx];
-  if(!r)return go('records');
+function startRedo(src,idx){
+  src=src||'hist';
+  const s=getSess();const rec=recAt(src,idx);
+  if(!rec)return go(src==='wp'?'wrong':'records');
   const saved=getRedoSess(s.id);
-  if(saved&&saved.examIdx===idx&&saved.items&&saved.items.length){
+  if(saved&&saved.src===src&&saved.examIdx===idx&&saved.items&&saved.items.length){
     const un=saved.items.length-Object.keys(saved.ans||{}).length;
     if(confirm(`检测到上次未完成的订正进度（本卷还剩 ${un} 题未作答）。\n\n点"确定"继续，点"取消"放弃并重新开始。`)){
       redoSess=saved;state.view='redo';window.scrollTo(0,0);render();return;
     }
     clearRedoSess(s.id);
   }
-  const ids=r.wrong.slice().filter(id=>qById(id));
+  const ids=rec.wrong.slice().filter(id=>qById(id));
   if(!ids.length){alert('本套试卷的错题已全部订正完成！');return;}
   if(!confirm(`订正规则：\n1. 本套共 ${ids.length} 道错题，生成一份订正卷：每道错题出 2 遍（打乱排开，共 ${ids.length*2} 题），整页上下翻动作答\n2. 交卷后一道题 2 遍全答对 => 掌握，自动从本套错题移除\n3. 有答错的题 => 保留在本套错题里，可再次"重做错题"继续订正\n\n开始订正吗？`))return;
-  redoSess={examIdx:idx,total:ids.length,items:buildRedoItems(ids),ans:{},pend:{}};
+  redoSess={src,examIdx:idx,total:ids.length,items:buildRedoItems(ids),ans:{},pend:{}};
   saveRedoSess(s.id,redoSess);
   state.view='redo';window.scrollTo(0,0);render();
 }
@@ -969,7 +1010,7 @@ function submitRedo(){
   const un=total-Object.keys(redoSess.ans).length;
   if(un>0&&!confirm(`还有 ${un} 题未作答，确定交卷吗？`))return;
   if(!confirm('确认交卷？'))return;
-  const h=getHist(s.id);const rec=h[redoSess.examIdx];
+  const rec=recAt(redoSess.src,redoSess.examIdx);
   // 统计每道错题 2 遍的答对次数
   const cnt={};
   redoSess.items.forEach((qid,i)=>{
@@ -985,17 +1026,18 @@ function submitRedo(){
   if(rec)rec.wrong=rec.wrong.filter(x=>!masteredIds.includes(x));
   if(failedIds.length){const w=getWrong(s.id);failedIds.forEach(qid=>{w[qid]=(w[qid]||0)+1;});saveWrong(s.id,w);}
   if(rec&&rec.wrong.length===0&&!rec.correctedAt)rec.correctedAt=Date.now();
-  saveHist(s.id,h);
+  saveRecAt(redoSess.src,redoSess.examIdx,rec);
   clearRedoSess(s.id);
   const rightCopies=Object.values(cnt).reduce((a,b)=>a+b,0);
+  const backView=redoSess.src==='wp'?'wrong':'records';
   $app.innerHTML=topbar()+`<div class="container">
     <div class="score-banner"><div>📢 订正结果</div><div class="num">掌握 ${masteredIds.length} / ${uniq.length}</div>
     <div>本卷 ${total} 题（${uniq.length} 道错题各 2 遍），答对 ${rightCopies} 遍 ·
     ${failedIds.length?`<span style="color:var(--red)">❌ ${failedIds.length} 道题未两遍全对，仍保留在本套错题里，可再次订正</span>`:'<span style="color:var(--green)">✅ 全部掌握，本套试卷订正完成！</span>'}</div></div>
     <div class="card">
-      ${failedIds.length?`<button class="btn" onclick="startRedo(${redoSess.examIdx})">🔁 再次订正剩余错题（${failedIds.length} 道）</button>`:''}
-      <button class="btn secondary" onclick="go('records')">返回成绩记录</button>
-      <button class="btn secondary" onclick="viewExamWrong(${redoSess.examIdx})">回顾本套错题</button>
+      ${failedIds.length?`<button class="btn" onclick="startRedo('${redoSess.src}',${redoSess.examIdx})">🔁 再次订正剩余错题（${failedIds.length} 道）</button>`:''}
+      <button class="btn secondary" onclick="go('${backView}')">返回${redoSess.src==='wp'?'错题本':'成绩记录'}</button>
+      <button class="btn secondary" onclick="viewExamWrong(${redoSess.examIdx},'${redoSess.src}')">回顾本套错题</button>
       <button class="btn secondary" onclick="go('home')">返回首页</button>
     </div></div>`;
   redoSess=null;
@@ -1004,8 +1046,9 @@ function submitRedo(){
 function toggleRedoCard(){const g=document.getElementById('acGridWrap');if(g)g.classList.toggle('hidden');}
 function quitRedo(){
   if(!confirm('确定退出订正吗？\n本卷作答进度已保存，下次点"重做错题"可继续。'))return;
+  const backView=redoSess&&redoSess.src==='wp'?'wrong':'records';
   saveRedoSess(getSess().id,redoSess);
-  redoSess=null;go('records');
+  redoSess=null;go(backView);
 }
 
 /* ---------- 学生数据备份 / 恢复 ---------- */
@@ -1042,7 +1085,7 @@ function viewBackup(){
 function exportMyData(){
   const s=getSess();
   const data={type:'qianzhong-student-data',id:s.id,name:s.name,exportedAt:new Date().toISOString(),
-    hist:getHist(s.id),wrong:getWrong(s.id),redo:getRedoSess(s.id)};
+    hist:getHist(s.id),wrong:getWrong(s.id),redo:getRedoSess(s.id),wpp:getWp(s.id)};
   download(`刷题数据_${s.name||s.id}_${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(data));
 }
 function importMyData(){
@@ -1062,7 +1105,11 @@ function importMyData(){
         const w=Object.assign(getWrong(s.id),d.wrong||{});
         saveWrong(s.id,w);
         if(d.redo&&d.redo.examIdx!==undefined&&d.redo.items&&!getRedoSess(s.id))saveRedoSess(s.id,d.redo);
-        alert(`恢复成功！\n· 考试记录：合并后共 ${uh.length} 条\n· 错题本：合并后共 ${Object.keys(w).length} 道\n\n建议立即再导出一次备份留底。`);
+        const wp=(getWp(s.id)).concat(d.wpp||[]);
+        wp.sort((a,b)=>a.ts-b.ts);
+        const seen2=new Set();const uwp=wp.filter(r=>{if(seen2.has(r.ts))return false;seen2.add(r.ts);return true;});
+        saveWp(s.id,uwp);
+        alert(`恢复成功！\n· 考试记录：合并后共 ${uh.length} 条\n· 错题本：合并后共 ${Object.keys(w).length} 道\n· 错题试卷记录：合并后共 ${uwp.length} 条\n\n建议立即再导出一次备份留底。`);
         go('home');
       }catch(e){alert('文件格式不正确，请选择本系统导出的备份文件');}
     };
